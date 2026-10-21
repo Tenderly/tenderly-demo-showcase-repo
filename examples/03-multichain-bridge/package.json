@@ -1,0 +1,20 @@
+{
+  "name": "tenderly-demo-03-multichain-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Multichain Virtual Environment (Ethereum + Base) with a cross-chain CCTP transfer relayed by Tenderly.",
+  "scripts": {
+    "bridge": "tsx multichain-bridge.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "ethers": "^6.13.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.4",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.2"
+  }
+}

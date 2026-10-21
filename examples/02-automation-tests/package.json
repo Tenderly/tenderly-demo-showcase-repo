@@ -1,0 +1,20 @@
+{
+  "name": "tenderly-demo-02-automation-tests",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Automation test suite that seeds state with cheat codes and asserts a settlement on a Virtual Environment.",
+  "scripts": {
+    "test": "tsx settlement.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "ethers": "^6.13.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.4",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.2"
+  }
+}

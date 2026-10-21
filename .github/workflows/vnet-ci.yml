@@ -1,0 +1,58 @@
+# Per-PR Virtual Environment CI (example 04).
+#
+# On every pull request this creates a fresh Tenderly Virtual Environment (a fork of
+# Ethereum mainnet), runs the treasury settlement suite against it, and the action
+# cleans the environment up after the run. Every PR gets a private fork of mainnet to
+# test against, with no shared staging chain to corrupt, no faucet and no keys.
+#
+# Setup (one time, in the GitHub repo settings):
+#   Secrets   -> TENDERLY_ACCESS_KEY        (Dashboard > Account Settings > Authorization)
+#   Variables -> TENDERLY_ACCOUNT_NAME      (account slug)
+#   Variables -> TENDERLY_PROJECT_NAME      (project slug)
+#
+# The Tenderly action exports per-network RPC URLs into the job environment:
+#   TENDERLY_ADMIN_RPC_URL_1   (cheat codes, the test suite seeds state with this)
+#   TENDERLY_PUBLIC_RPC_URL_1  (standard JSON-RPC, what an app would use)
+# The settlement suite (examples/02-automation-tests/settlement.test.ts) reads those,
+# so the same test runs locally and in CI.
+name: Virtual Environment CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  settlement:
+    # Runs once the repo has the Tenderly variables set (see Setup above). Pull requests
+    # from forks don't get the repository's secrets, so they're skipped too.
+    if: vars.TENDERLY_ACCOUNT_NAME != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # A fresh Virtual Environment for this run. CI mode cleans it up after the job.
+      - name: Set up Virtual Environment
+        uses: Tenderly/vnet-github-action@v1.0.17
+        with:
+          mode: CI
+          access_key: ${{ secrets.TENDERLY_ACCESS_KEY }}
+          account_name: ${{ vars.TENDERLY_ACCOUNT_NAME }}
+          project_name: ${{ vars.TENDERLY_PROJECT_NAME }}
+          testnet_name: "Acme CI #${{ github.run_number }}"
+          network_id: 1
+          chain_id_prefix: 7357
+          public_explorer: true
+
+      - name: Run the settlement suite against the Environment
+        working-directory: examples/02-automation-tests
+        run: |
+          npm install
+          npm test
+        # TENDERLY_ADMIN_RPC_URL_1 / TENDERLY_PUBLIC_RPC_URL_1 are exported by the
+        # action above into the job environment, so the suite picks them up.
