@@ -25,8 +25,8 @@ Settings (environment variables):
 
 | Var | Default | Meaning |
 | --- | --- | --- |
-| `FORK_BLOCK` | `latest` | fork point for `npm run create` |
-| `STATE_SYNC` | `false` | `true` creates the environment with State Sync (v1 vnets API), so unmodified state follows live mainnet |
+| `FORK_BLOCK` | `latest` | fork point for a plain `npm run create` (a State Sync fork always starts at latest) |
+| `STATE_SYNC` | `false` | `true` creates the environment with State Sync, so unmodified state follows live mainnet |
 | `MINE_INTERVAL_SECONDS` | `10` | seconds between ticks |
 | `MINE_BLOCKS` | `1` | blocks mined per tick |
 | `MINE_RPC_URL` / `WATCH_RPC_URL` | (none) | target an existing environment instead of `out/vnet.json` |
@@ -34,15 +34,19 @@ Settings (environment variables):
 
 ## State Sync check
 
+State Sync is available on Tenderly's paid plan. It's set when the environment is created and can't be switched on or off later.
+
 `watch-state.ts` polls two values that change on mainnet nearly every block, the Uniswap V3 USDC/WETH pool's `slot0` price and its WETH balance. It reads them from the environment's RPC and marks each tick `→ CHANGED` or `· frozen`.
 
 - On a plain fork (`npm run create`) every tick is frozen, because state stays at the fork point.
-- On a State Sync fork (`STATE_SYNC=true npm run create`) live mainnet state drifts in, so the values change. A change can take tens of seconds to show up, so let it run for a minute.
+- On a State Sync fork (`STATE_SYNC=true npm run create`) live mainnet state drifts in, so the values change. Keep `npm run mine` running in another terminal while you watch, because a State Sync environment catches up with mainnet each time it mines a block.
 
-State Sync needs the v1 `vnets` endpoint, because the `environments` endpoint ignores `sync_state_config`. It covers unmodified state only. Accounts you change with cheat codes or transactions keep your values.
+State Sync covers unmodified state only. Accounts you change with cheat codes or transactions keep your values.
+
+`create-vnet.ts` turns State Sync on with `syncStateConfig` in the network config, on the environments endpoint `POST /api/v1/account/{account}/project/{project}/environments`. The snake_case `/api/public/v1/.../environments` endpoint, which the plain fork uses, ignores the setting.
 
 ## What you see
 
-`npm run create` prints the Admin RPC for the miner, the Public RPC for the indexer, and the dashboard link. `npm run mine` logs one line per tick with the block number and timestamp, and the dashboard's block height climbs with it. Mined blocks are empty and carry wall-clock timestamps, so pollers that use `eth_getBlockByNumber` or `eth_subscribe` behave as they would against a public network.
+`npm run create` prints the Admin RPC for the miner, the Public RPC for the indexer, and the dashboard link. `npm run mine` logs one line per tick with the block number and timestamp, and the dashboard's block height climbs with it. On a plain fork the mined blocks are empty and carry wall-clock timestamps, so pollers that use `eth_getBlockByNumber` or `eth_subscribe` behave as they would against a public network.
 
 Point your indexer at the Public RPC from `out/vnet.json` and keep the miner running while it indexes.

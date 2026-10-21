@@ -82,7 +82,13 @@ async function main(): Promise<void> {
   while (!stopping) {
     await new Promise((r) => setTimeout(r, INTERVAL_S * 1000));
     if (stopping) break;
-    const cur = await read();
+    let cur: Awaited<ReturnType<typeof read>>;
+    try {
+      cur = await read();
+    } catch (e) {
+      console.log(`  ✘ read failed: ${(e as Error).message.slice(0, 120)} ${dim("— retrying next interval")}`);
+      continue;
+    }
     ticks++;
     const priceMoved = cur.price !== prev.price;
     const balMoved = cur.wethBal !== prev.wethBal;

@@ -35,8 +35,7 @@ const STATE_SYNC = /^(1|true|yes)$/i.test(process.env.STATE_SYNC ?? "");
 async function main(): Promise<void> {
   const env = requireEnv();
   section(`Create — Virtual Environment (mainnet fork @ ${STATE_SYNC ? "latest, STATE SYNC on" : FORK_BLOCK})`);
-  // state sync needs the v1 vnets endpoint (always forks at latest);
-  // the environments endpoint ignores sync_state_config
+  // a State Sync environment always forks at latest, so FORK_BLOCK doesn't apply to it
   const vnet = STATE_SYNC
     ? await createVnetWithStateSync(env, "auto-mine-indexing-sync")
     : await createVnet(env, "auto-mine-indexing", FORK_BLOCK);

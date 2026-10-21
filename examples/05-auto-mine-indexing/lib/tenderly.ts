@@ -27,6 +27,22 @@ export function requireEnv(): TenderlyEnv {
   return { accessKey: TENDERLY_ACCESS_KEY!, account: TENDERLY_ACCOUNT!, project: TENDERLY_PROJECT! };
 }
 
+/** An environment as the public environments endpoint returns it (create and get). */
+interface RawEnvironment {
+  id: string;
+  active_instance?: { vnets?: Array<{ id: string; rpcs?: Array<{ name: string; url: string }> }> };
+}
+
+/** The environment's first network with its Admin and Public RPC. */
+function vnetFrom(data: RawEnvironment): Vnet {
+  const vnet = data.active_instance?.vnets?.[0];
+  const rpcs = vnet?.rpcs ?? [];
+  const admin = rpcs.find((r) => /^admin rpc$/i.test(r.name)) ?? rpcs.find((r) => /admin/i.test(r.name)) ?? rpcs[0];
+  const pub = rpcs.find((r) => /^public rpc$/i.test(r.name));
+  if (!admin?.url) throw new Error(`no RPC in vnet response: ${JSON.stringify(data).slice(0, 400)}`);
+  return { containerId: data.id, vnetId: vnet!.id, adminRpc: admin.url, publicRpc: pub?.url };
+}
+
 /** Create a Virtual Environment forking Ethereum mainnet at `blockNumber` ("latest" allowed). */
 export async function createVnet(env: TenderlyEnv, displayName: string, blockNumber: string | number): Promise<Vnet> {
   const res = await fetch(`${API}/public/v1/account/${env.account}/project/${env.project}/environments`, {
@@ -42,43 +58,37 @@ export async function createVnet(env: TenderlyEnv, displayName: string, blockNum
     }),
   });
   if (!res.ok) throw new Error(`create vnet failed: ${res.status} ${await res.text()}`);
-  const data = (await res.json()) as {
-    id: string;
-    active_instance?: { vnets?: Array<{ id: string; rpcs?: Array<{ name: string; url: string }> }> };
-  };
-  const vnet = data.active_instance?.vnets?.[0];
-  const rpcs = vnet?.rpcs ?? [];
-  const admin = rpcs.find((r) => /^admin rpc$/i.test(r.name)) ?? rpcs.find((r) => /admin/i.test(r.name)) ?? rpcs[0];
-  const pub = rpcs.find((r) => /^public rpc$/i.test(r.name));
-  if (!admin?.url) throw new Error(`no RPC in vnet response: ${JSON.stringify(data).slice(0, 400)}`);
-  return { containerId: data.id, vnetId: vnet!.id, adminRpc: admin.url, publicRpc: pub?.url };
+  return vnetFrom((await res.json()) as RawEnvironment);
 }
 
 /**
- * Create a Virtual Environment via the v1 vnets API with STATE SYNC enabled —
- * unmodified state keeps following the live network. (The environments
- * endpoint used by createVnet ignores `sync_state_config`.)
+ * Create a Virtual Environment forking Ethereum mainnet at latest with State Sync on,
+ * so unmodified state keeps following the live network. State Sync is set per network
+ * with `syncStateConfig`, which the camelCase environments endpoint (/api/v1/...)
+ * accepts; the snake_case public one used by createVnet ignores it. The RPC URLs are
+ * then read back through the public endpoint, in the same shape createVnet gets.
  */
-export async function createVnetWithStateSync(env: TenderlyEnv, slugBase: string): Promise<Vnet> {
-  const slug = `${slugBase}-${Math.random().toString(36).slice(2, 8)}`;
-  const res = await fetch(`${API}/v1/account/${env.account}/project/${env.project}/vnets`, {
+export async function createVnetWithStateSync(env: TenderlyEnv, displayName: string): Promise<Vnet> {
+  const res = await fetch(`${API}/v1/account/${env.account}/project/${env.project}/environments`, {
     method: "POST",
     headers: { "X-Access-Key": env.accessKey, "Content-Type": "application/json" },
     body: JSON.stringify({
-      slug,
-      display_name: slugBase,
-      fork_config: { network_id: 1, block_number: "latest" },
-      virtual_network_config: { chain_config: { chain_id: 1 } },
-      sync_state_config: { enabled: true },
+      displayName,
+      networkConfigs: [{
+        networkId: "1",
+        blockNumber: "latest",
+        chainConfigOverrides: { chainId: "1" },
+        syncStateConfig: { enabled: true, commitmentLevel: "latest" },
+      }],
     }),
   });
-  if (!res.ok) throw new Error(`create vnet (v1, state sync) failed: ${res.status} ${await res.text()}`);
-  const data = (await res.json()) as { id: string; rpcs?: Array<{ name: string; url: string }> };
-  const rpcs = data.rpcs ?? [];
-  const admin = rpcs.find((r) => /^admin rpc$/i.test(r.name)) ?? rpcs.find((r) => /admin/i.test(r.name)) ?? rpcs[0];
-  const pub = rpcs.find((r) => /^public rpc$/i.test(r.name));
-  if (!admin?.url) throw new Error(`no RPC in vnet response: ${JSON.stringify(data).slice(0, 400)}`);
-  return { containerId: data.id, vnetId: data.id, adminRpc: admin.url, publicRpc: pub?.url };
+  if (!res.ok) throw new Error(`create environment (state sync) failed: ${res.status} ${await res.text()}`);
+  const { id } = (await res.json()) as { id: string };
+  const detail = await fetch(`${API}/public/v1/account/${env.account}/project/${env.project}/environments/${id}`, {
+    headers: { "X-Access-Key": env.accessKey },
+  });
+  if (!detail.ok) throw new Error(`read environment ${id} failed: ${detail.status} ${await detail.text()}`);
+  return vnetFrom((await detail.json()) as RawEnvironment);
 }
 
 export const providerFor = (rpcUrl: string): JsonRpcProvider =>
