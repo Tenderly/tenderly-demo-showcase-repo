@@ -1,6 +1,6 @@
 ---
 name: tenderly-virtual-environments
-description: Use when the user wants to test smart contracts or a dapp on a fork of a live network with Tenderly Virtual Environments. Covers shared dev, qa and uat environments for a team, test suites that seed state with cheat codes (set balances, impersonate any address, snapshot and revert, time travel), a fresh environment per pull request in CI with the Tenderly GitHub Action, cross-chain transfers relayed by the bridge module (CCTP V2), and keeping a fork producing blocks or following live mainnet state for indexers and subgraphs (auto-mine, State Sync). Works from the runnable TypeScript examples in Tenderly/tenderly-demo-showcase-repo.
+description: Use when the user wants to test smart contracts or a dapp on a fork of a live network with Tenderly Virtual Environments. Covers shared dev, qa and uat environments for a team, test suites that seed state with cheat codes (set balances, impersonate any address, snapshot and revert, time travel), a fresh environment per pull request in CI with the Tenderly GitHub Action, cross-chain transfers relayed by the bridge module (CCTP V2), keeping a fork producing blocks or following live mainnet state for indexers and subgraphs (auto-mine, State Sync), and checking what a large withdrawal from a Morpho vault does to its depositors and to other vaults (whale exit). Works from the runnable TypeScript examples in Tenderly/tenderly-demo-showcase-repo.
 ---
 
 # Tenderly Virtual Environments
@@ -18,6 +18,7 @@ Run or copy an example rather than writing the integration from scratch. Each on
 | run those tests on a fresh environment for every pull request | `04-ci-cd` (runs 02 in CI) | `npm run ci -- --cleanup` |
 | test a cross-chain transfer between two forked chains | `03-multichain-bridge` | `npm run bridge` |
 | keep blocks coming for an indexer, or follow live mainnet state | `05-auto-mine-indexing` | `npm run create`, then `npm run mine` |
+| see what happens when a vault's largest depositor withdraws everything | `06-whale-exit` | `npm run demo` (any MetaMorpho vault with `--vault`) |
 
 ## Setup
 
@@ -56,6 +57,7 @@ Read the example's README for its options and what its output means.
 - **CCTP V1 isn't relayed.** The bridge module relays CCTP V2: TokenMessengerV2 is `0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d` on both Ethereum and Base. A burn through the V1 TokenMessenger succeeds on the source chain, but nothing is ever minted on the destination.
 - **State Sync is set at creation.** It's a paid-plan feature and can't be switched on later. The public environments endpoint ignores `sync_state_config`, so example 05 sends `syncStateConfig` to the camelCase endpoint `POST https://api.tenderly.co/api/v1/account/{account}/project/{project}/environments`. Synced state refreshes when the environment mines a block, so keep `npm run mine` running while you read it.
 - **Cheat codes mine a block.** Each call moves the chain forward, so balances that earn interest and timestamps move too. Read a value after the last cheat code, right before you use it.
+- **A pinned fork still moves in time.** New blocks carry today's timestamp, so interest since the fork block accrues as soon as the first one is mined. Amounts from an old block grow a little with the date you run it.
 - **`evm_revert` deletes transactions.** Everything after the snapshot disappears from the environment and its dashboard, including transactions a teammate sent. Run tests that revert on an environment of their own.
 - **The environment list is paged.** It returns at most 100 environments per page. Read every page before deciding an environment doesn't exist, or reusing one by name creates a duplicate.
 - **CI needs the repo's settings.** The workflow needs the `TENDERLY_ACCESS_KEY` secret and the `TENDERLY_ACCOUNT_NAME` and `TENDERLY_PROJECT_NAME` variables. Pull requests from forks don't get secrets.
