@@ -43,3 +43,11 @@ cd ../05-auto-mine-indexing        && npm install && npm run create && npm run m
 - Examples 01 to 04 give each environment a virtual chain id with the `7357` prefix (`73571` for an Ethereum fork), so its transactions can't be replayed on the real chain. They send transactions with cheat-code impersonation (`eth_sendTransaction` with a `from`), without signing keys. Example 05 keeps chain id 1.
 - The environments from 01, 02 and 03 are meant to stay up and are reused by name. Delete them in the dashboard, or with `deleteTestNets` in the folder's `lib/testnet.ts`. Example 04 with `--cleanup` deletes its own environment.
 - Each folder ships its own copy of its Tenderly helper (`lib/testnet.ts`, or `lib/tenderly.ts` in 05), so it runs on its own.
+
+## Using it with an AI agent
+
+The repo has one agent skill, [`.claude/skills/tenderly-virtual-environments`](.claude/skills/tenderly-virtual-environments/SKILL.md). It tells an agent which example fits the task, how to run or copy it, and the problems we hit while running them. Claude Code loads it when you work in this repo. To add it to another project, for Claude Code, Codex, Cursor and other agents, run:
+
+```bash
+npx skills add Tenderly/tenderly-demo-showcase-repo
+```
