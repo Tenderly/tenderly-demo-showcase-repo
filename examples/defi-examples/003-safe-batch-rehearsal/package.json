@@ -1,0 +1,25 @@
+{
+  "name": "tenderly-demo-defi-003-safe-batch-rehearsal",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Rehearse a Safe multisig batch on a Virtual Environment before anyone signs it: simulate it from the Safe's address with tenderly_simulateBundle, execute it through the Safe with impersonated owners, print what it changes and the hashes the signers will see.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "demo": "tsx rehearse.ts",
+    "demo:fail": "tsx rehearse.ts --batch batches/over-cap.json",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "dotenv": "^16.4.5",
+    "ethers": "^6.13.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.4",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.2"
+  }
+}

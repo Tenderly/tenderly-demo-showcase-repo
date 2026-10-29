@@ -1,55 +1,85 @@
 # Tenderly demo showcase
 
-Runnable examples of Tenderly Virtual Environments, in TypeScript with ethers v6, run with `tsx`. They need no Solidity toolchain, no private keys and no faucet.
+Runnable examples of Tenderly Virtual Environments and monitoring, in TypeScript with ethers v6. They need no Solidity
+toolchain, no private keys and no faucet.
 
-Examples 01 to 05 share one scenario, a stablecoin treasury and settlement app built by a full-stack team (UI, backend, smart contracts and product). Each environment the team uses (dev, qa, uat) is a private fork of Ethereum mainnet that the whole team shares. Example 06 forks Ethereum at a fixed block to see what a large withdrawal from a lending vault does to everyone else.
+## Configuration
 
-Each example is a self-contained folder. `cd` into it, run `npm install`, then its command. Run them in order or pick one.
-
-| Example | What it shows | Command |
-|---------|---------------|---------|
-| [`01-shared-environments`](examples/01-shared-environments/) | Persistent dev, qa and uat environments the whole team shares | `npm run provision -- --env qa` |
-| [`02-automation-tests`](examples/02-automation-tests/) | An automation test suite on RPC and cheat codes | `npm test` |
-| [`03-multichain-bridge`](examples/03-multichain-bridge/) | One environment over Ethereum and Base, with a CCTP transfer relayed by the bridge module | `npm run bridge` |
-| [`04-ci-cd`](examples/04-ci-cd/) | A fresh environment for every pull request with the Tenderly GitHub Action | `npm run ci -- --cleanup` |
-| [`05-auto-mine-indexing`](examples/05-auto-mine-indexing/) | A block every 10 seconds so indexers see a live chain, plus a State Sync check | `npm run create`, then `npm run mine` |
-| [`06-whale-exit`](examples/06-whale-exit/) | A vault's largest depositor withdraws everything: what they get, which markets it drains, and which other vaults lose exit liquidity | `npm run demo` |
-
-Virtual Environments used to be called Virtual TestNets. The GitHub Action (`Tenderly/vnet-github-action`) and some API fields still use the old name.
-
-## Setup
-
-You need Node 20 or later and a Tenderly account with a project and an access key. All examples read one `.env` at the repo root. Copy `.env.example` to `.env` and fill it in:
+Node 22 or later, and a Tenderly account with a project and an access key. Copy `.env.example` to `.env` at the repo
+root and fill it in:
 
 ```bash
-TENDERLY_ACCESS_KEY=...     # Dashboard > Account Settings > Authorization
-TENDERLY_ACCOUNT=...        # account slug
-TENDERLY_PROJECT=...        # project slug
+TENDERLY_ACCESS_KEY=...   # Dashboard > Account Settings > Authorization
+TENDERLY_ACCOUNT=...      # the slugs in dashboard.tenderly.co/{account}/{project}
+TENDERLY_PROJECT=...
 ```
 
-## Quick start
+Each example is a folder of its own: `cd` into it, run `npm install`, then its command. Each run creates its own
+Virtual Environment and keeps it, so the dashboard links it prints keep working. Delete old ones in the dashboard.
 
-```bash
-cp .env.example .env    # then fill it in
-cd examples/01-shared-environments && npm install && npm run provision -- --env qa
-cd ../02-automation-tests          && npm install && npm test
-cd ../03-multichain-bridge         && npm install && npm run bridge
-cd ../04-ci-cd                     && npm install && npm run ci -- --cleanup
-cd ../05-auto-mine-indexing        && npm install && npm run create && npm run mine
-cd ../06-whale-exit                && npm install && npm run demo
-```
+## Setup examples
+
+How a team sets up Virtual Environments. Examples 01 to 04 share one scenario, a USDC treasury app on an Ethereum fork.
+
+### 01. Shared environments
+Persistent dev, qa and uat environments the whole team shares, reused by name.
+[`examples/setup-examples/01-shared-environments`](examples/setup-examples/01-shared-environments/): `npm run provision -- --env qa`
+
+### 02. Automation tests
+A test suite that seeds balances with cheat codes and settles 250,000 USDC, on an environment of its own.
+[`examples/setup-examples/02-automation-tests`](examples/setup-examples/02-automation-tests/): `npm test`
+
+### 03. Multichain bridge
+One environment over Ethereum and Base. A CCTP V2 burn on Ethereum is minted on Base by the bridge module.
+[`examples/setup-examples/03-multichain-bridge`](examples/setup-examples/03-multichain-bridge/): `npm run bridge`
+
+### 04. CI/CD
+A new environment for every pull request, running example 02's suite in GitHub Actions.
+[`examples/setup-examples/04-ci-cd`](examples/setup-examples/04-ci-cd/): `npm run ci -- --pr 1`
+
+### 05. Auto-mine for indexers
+A fork that keeps producing blocks, so indexers and frontends see a moving chain. Optional State Sync.
+[`examples/setup-examples/05-auto-mine-indexing`](examples/setup-examples/05-auto-mine-indexing/): `npm run create`, then `npm run mine`
+
+## DeFi examples
+
+### 001. Whale exit
+A Morpho vault's largest depositor withdraws everything. The run shows what they get, which markets the exit drains,
+and which other vaults lose exit liquidity.
+[`examples/defi-examples/001-whale-exit`](examples/defi-examples/001-whale-exit/): `npm run demo`
+
+### 002. Aave crash liquidation
+ETH drops 10, 20 and 30%: which Aave V3 positions become liquidatable, and what a liquidator gets from the worst one.
+[`examples/defi-examples/002-aave-crash-liquidation`](examples/defi-examples/002-aave-crash-liquidation/): `npm run demo`
+
+### 003. Safe batch rehearsal
+A curator's Safe batch simulated before anyone signs, then executed with impersonated owners past a 7-day timelock.
+[`examples/defi-examples/003-safe-batch-rehearsal`](examples/defi-examples/003-safe-batch-rehearsal/): `npm run demo`
+
+### 004. Policy gate
+An agent checks each planned transaction against rules and a simulation, and sends only what passes.
+[`examples/defi-examples/004-policy-gate`](examples/defi-examples/004-policy-gate/): `npm run demo`
+
+## Monitoring
+
+### 01. Invariant alerts
+An alert on Morpho bad debt and a Web3 Action it triggers, both set up through the API.
+[`examples/monitoring/01-invariant-alerts`](examples/monitoring/01-invariant-alerts/): `npm run setup`
 
 ## Notes
 
-- Cheat codes work only on the Admin RPC. Give the Public RPC to anything that should behave like production, and keep the Admin RPC for the people and tests that seed state.
-- Examples 01 to 04 and 06 give each environment a virtual chain id with the `7357` prefix (`73571` for an Ethereum fork), so its transactions can't be replayed on the real chain. They send transactions with cheat-code impersonation (`eth_sendTransaction` with a `from`), without signing keys. Example 05 keeps chain id 1.
-- The environments from 01, 02 and 03 are meant to stay up and are reused by name. Delete them in the dashboard, or with `deleteTestNets` in the folder's `lib/testnet.ts`. Examples 04 and 06 delete their own environment when run with `--cleanup`.
-- Each folder ships its own copy of its Tenderly helpers (`lib/testnet.ts`, or `lib/` in 05 and 06), so it runs on its own.
+- Cheat codes work only on an environment's Admin RPC. Give apps the Public RPC.
+- Chain ids use the `7357` prefix (`73571` for an Ethereum fork), so transactions can't be replayed on the real chain.
+  Example 05 keeps chain id `1`.
+- REST calls use only the [API reference](https://docs.tenderly.co/api-reference), except example 05's State Sync
+  create, which uses a call from the docs guide.
+- Virtual Environments used to be called Virtual TestNets, and some API fields still use the old name.
 
 ## Using it with an AI agent
 
-The repo has one agent skill, [`.claude/skills/tenderly-virtual-environments`](.claude/skills/tenderly-virtual-environments/SKILL.md). It tells an agent which example fits the task, how to run or copy it, and the problems we hit while running them. Claude Code loads it when you work in this repo. To add it to another project, for Claude Code, Codex, Cursor and other agents, run:
+The skill in [`.claude/skills/tenderly-examples`](.claude/skills/tenderly-examples/SKILL.md) maps a task to an example
+and lists the problems we hit. Claude Code loads it in this repo. To add it to another project, run:
 
 ```bash
-npx skills add Tenderly/tenderly-demo-showcase-repo
+npx skills add Tenderly/tenderly-demo-showcase
 ```

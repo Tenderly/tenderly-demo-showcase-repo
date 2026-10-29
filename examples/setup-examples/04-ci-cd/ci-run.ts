@@ -1,118 +1,156 @@
-#!/usr/bin/env tsx
-/**
- * Local emulation of the per-PR CI pipeline (what the GitHub Action does in CI).
- *
- *   npm run ci                 # provision a fresh ephemeral Environment, run the test, keep it
- *   npm run ci -- --pr 4217    # label it with a PR number
- *   npm run ci -- --cleanup    # tear the Environment down at the end (true CI behavior)
- *
- * The GitHub Action (../../.github/workflows/vnet-ci.yml) runs only in
- * GitHub. This script reproduces the same flow on your machine so you can DEMO it
- * and open the result in the dashboard UI:
- *
- *   1. provision a FRESH, ephemeral Virtual Environment for this "PR" (a real mainnet fork)
- *   2. run the settlement test against it (cheat-code seed -> impersonated settlements)
- *   3. leave decoded transactions in the dashboard to inspect (call trace, state diff,
- *      gas profiler) — or tear it down with --cleanup, exactly as CI mode does
- *
- * Each run makes a new environment (reuse off), just like a new PR gets its own.
- */
-import { JsonRpcProvider, Interface, parseUnits, getAddress } from "ethers";
-import assert from "node:assert/strict";
-import { provisionTestNet, fundNative, setErc20Balance, deleteTestNets } from "./lib/testnet.js";
+// Example 04: create an environment for a pull request, then run example 02's suite against it in a child process.
+// npm run ci -- --pr 4217. Nothing deletes the environment. A suite that stops before its RESULT line fails the run.
+// In GitHub Actions it masks both RPC URLs before any other output and appends the links to the job summary.
+import { spawn } from "node:child_process";
+import { appendFileSync, existsSync } from "node:fs";
+import { dirname, resolve, sep } from "node:path";
+import type { Readable, Writable } from "node:stream";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { parseArgs } from "node:util";
+import chalk from "chalk";
+import * as log from "./lib/log.js";
+import { createEnvironment, credentials, environmentUrl, providerFor, runSlug, transactionsUrl } from "./lib/tenderly.js";
 
-const USDC = getAddress("0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"); // mainnet USDC, 6 dp
-const TREASURY = getAddress("0x1111111111111111111111111111111111111111");
-const PAYROLL = getAddress("0x2222222222222222222222222222222222222222");
-const VENDOR = getAddress("0x4444444444444444444444444444444444444444");
+const SUITE = resolve(dirname(fileURLToPath(import.meta.url)), "../02-automation-tests");
+const GITHUB = process.env.GITHUB_ACTIONS === "true";
 
-const SEED = parseUnits("1000000", 6);
-const PAY_PAYROLL = parseUnits("250000", 6);
-const PAY_VENDOR = parseUnits("100000", 6);
-
-const erc20 = new Interface([
-  "function transfer(address to, uint256 amount) returns (bool)",
-  "function balanceOf(address owner) view returns (uint256)",
-]);
-const toHex = (v: bigint): string => "0x" + v.toString(16);
-const usd = (v: bigint): string => (v / 1_000_000n).toLocaleString("en-US") + " USDC";
-
-function parseArgs(argv: string[]): { pr: string; cleanup: boolean } {
-  let pr = "";
-  let cleanup = false;
-  for (let i = 0; i < argv.length; i++) {
-    if (argv[i] === "--pr") pr = argv[++i] ?? "";
-    else if (argv[i] === "--cleanup") cleanup = true;
-  }
-  // A unique-ish label per run when no PR number is given.
-  if (!pr) pr = String(Date.now()).slice(-5);
-  return { pr, cleanup };
+/** How an npm command in ../02-automation-tests ended, the verdict of its RESULT line and its first error line. */
+interface Ended {
+  code: number | null;
+  signal: NodeJS.Signals | null;
+  verdict?: "PASS" | "FAIL";
+  error?: string;
 }
 
-async function balanceOf(provider: JsonRpcProvider, owner: string): Promise<bigint> {
-  return BigInt(await provider.call({ to: USDC, data: erc20.encodeFunctionData("balanceOf", [owner]) }));
+/** Pass a child's output on line by line, redacted, and give watch() each line without colors. */
+function relay(from: Readable, to: Writable, watch: (line: string) => void): void {
+  let rest = "";
+  const pass = (line: string, end: string): void => {
+    to.write(log.redact(line) + end);
+    watch(line.replace(/\x1b\[[0-9;]*m|\r$/g, ""));
+  };
+  from.setEncoding("utf8");
+  from.on("data", (chunk: string) => {
+    const lines = (rest + chunk).split("\n");
+    rest = lines.pop() ?? "";
+    for (const line of lines) pass(line, "\n");
+  });
+  from.on("end", () => rest && pass(rest, ""));
 }
 
-async function settle(admin: JsonRpcProvider, to: string, amount: bigint): Promise<string> {
-  // Impersonated, unsigned send — auto-mines one block, decoded in the dashboard.
-  return admin.send("eth_sendTransaction", [
-    { from: TREASURY, to: USDC, data: erc20.encodeFunctionData("transfer", [to, amount]) },
-  ]);
+/** npm <args> in ../02-automation-tests, with its output streamed through this process. */
+function npm(args: string, env: NodeJS.ProcessEnv): Promise<Ended> {
+  return new Promise((done, failed) => {
+    // A fixed command line through a shell, because Windows starts npm (npm.cmd) only through one.
+    const child = spawn(`npm ${args}`, { cwd: SUITE, env, shell: true, stdio: ["inherit", "pipe", "pipe"] });
+    const seen: Pick<Ended, "verdict" | "error"> = {};
+    relay(child.stdout, process.stdout, (line) => {
+      const result = /^RESULT\s+(PASS|FAIL)\b/.exec(line);
+      if (result) seen.verdict = result[1] as "PASS" | "FAIL";
+    });
+    relay(child.stderr, process.stderr, (line) => {
+      if (!seen.error && /^\w*Error\b/.test(line)) seen.error = line;
+    });
+    child.on("error", failed);
+    child.on("close", (code, signal) => done({ code, signal, ...seen }));
+  });
 }
 
-async function main(): Promise<void> {
-  const { pr, cleanup } = parseArgs(process.argv.slice(2));
-  console.log(`CI pipeline (emulated) — PR #${pr}`);
-  console.log("Provisioning a fresh, ephemeral Virtual Environment for this PR ...");
+const ended = (e: Ended): string => (e.signal ? `stopped by ${e.signal}` : `exited with ${e.code}`);
 
-  // Fresh env every run (reuse: false) — a new PR gets its own private mainnet fork.
-  const tn = await provisionTestNet({ env: `ci-pr-${pr}`, explorer: true, reuse: false });
-  console.log(`  created: ${tn.displayName}  (chain ${tn.chainId})`);
-  console.log(`  dashboard: ${tn.dashboardUrl}\n`);
+/** Shorten a Node error line to its message, with paths relative to ../02-automation-tests, in 81 characters. */
+function reason(line: string): string {
+  const message = (line.replace(/^\w*Error(?: \[\w+\])?: /, "") || line)
+    .split(`${pathToFileURL(SUITE).href}/`).join("")
+    .split(`${SUITE}${sep}`).join("");
+  const safe = log.redact(message);
+  return safe.length <= 81 ? safe : `${safe.slice(0, 80)}…`;
+}
 
-  const admin = new JsonRpcProvider(tn.adminRpc);
-  const pub = new JsonRpcProvider(tn.publicRpc);
+async function main(): Promise<number> {
+  const { pr } = parseArgs({ options: { pr: { type: "string" } } }).values;
+  if (pr !== undefined && !/^\d+$/.test(pr)) throw new Error(`--pr takes a pull request number, not "${pr}"`);
+  if (!existsSync(resolve(SUITE, "package.json"))) throw new Error("example 02 is missing: 04 runs ../02-automation-tests");
+  const c = credentials();
+  const e = await createEnvironment(c, {
+    displayName: pr ? `Acme Treasury CI PR ${pr}` : "Acme Treasury CI local",
+    slug: runSlug(`acme-ci-${pr ?? "local"}`),
+    networks: [{ networkId: 1, chainId: 73571 }],
+  });
+  const n = e.networks[0];
+  // GitHub workflow commands, not log lines. From here on the job log hides both URLs, also in the suite's output.
+  if (GITHUB) process.stdout.write(`::add-mask::${n.adminRpc}\n::add-mask::${n.publicRpc}\n`);
 
-  // --- the test: seed deterministic state, run two settlements, assert deltas ---
+  const links = [["environment", environmentUrl(c, e)], ["transactions", transactionsUrl(c, e)]] as const;
+  const summary = (pass: boolean): void => {
+    const file = process.env.GITHUB_STEP_SUMMARY;
+    if (!GITHUB || !file) return;
+    const lines = [
+      `### ${e.displayName}: ${pass ? "PASS" : "FAIL"}`,
+      "",
+      `Example 02's settlement suite on \`${e.slug}\`, chain id ${n.chainId}. The links need a login to the Tenderly project.`,
+      "",
+      ...links.map(([label, url]) => `- [${label}](${url})`),
+    ];
+    appendFileSync(file, `${lines.join("\n")}\n`);
+  };
+  /** Print [FAIL] with where and why, the links and RESULT FAIL, for a suite that gave no verdict of its own. */
+  const stop = (failure: string, detail: string | undefined, verdict: string): number => {
+    log.fail(failure);
+    if (detail) log.sub(detail);
+    log.blank();
+    for (const [label, url] of links) log.link(label, url);
+    return log.result(false, verdict);
+  };
+
+  log.run("CI run", `${pr ? `PR ${pr}` : "Local run"}: a new environment, then example 02's suite against it`, 2);
+  log.step("Create environment");
+  let where = "Public RPC";
+  let code: number;
   try {
-    await fundNative(tn.adminRpc, [TREASURY]);
-    await setErc20Balance(tn.adminRpc, USDC, TREASURY, toHex(SEED));
-    await setErc20Balance(tn.adminRpc, USDC, PAYROLL, "0x0");
-    await setErc20Balance(tn.adminRpc, USDC, VENDOR, "0x0");
-    console.log(`Seeded treasury with ${usd(SEED)} (cheat codes).`);
+    const block = await providerFor(n.publicRpc, n.chainId).getBlockNumber();
+    log.ok(`environment ${e.slug}, block ${block.toLocaleString("en-US")}, chain id ${n.chainId}`);
 
-    const tx1 = await settle(admin, PAYROLL, PAY_PAYROLL);
-    const tx2 = await settle(admin, VENDOR, PAY_VENDOR);
-    console.log(`Settled ${usd(PAY_PAYROLL)} -> payroll   (${tx1})`);
-    console.log(`Settled ${usd(PAY_VENDOR)} -> vendor    (${tx2})`);
-
-    assert.equal(await balanceOf(pub, PAYROLL), PAY_PAYROLL, "payroll received 250,000 USDC");
-    assert.equal(await balanceOf(pub, VENDOR), PAY_VENDOR, "vendor received 100,000 USDC");
-    assert.equal(await balanceOf(pub, TREASURY), SEED - PAY_PAYROLL - PAY_VENDOR, "treasury debited 350,000 USDC");
-    console.log("\n✔ settlement checks PASSED");
+    log.step("Run example 02's suite");
+    const env = {
+      ...process.env,
+      // The suite writes to a pipe, where its chalk would drop the colors this terminal shows.
+      ...(process.stdout.isTTY && chalk.level > 0 ? { FORCE_COLOR: String(chalk.level) } : {}),
+      TENDERLY_ADMIN_RPC_URL_1: n.adminRpc,
+      TENDERLY_PUBLIC_RPC_URL_1: n.publicRpc,
+      TENDERLY_ENVIRONMENT_ID: e.id,
+      TENDERLY_INSTANCE_ID: e.instanceId,
+      TENDERLY_VNET_ID_1: n.vnetId,
+    };
+    if (!existsSync(resolve(SUITE, "node_modules"))) {
+      where = "npm install in ../02-automation-tests";
+      log.wait(where);
+      const install = await npm("install --no-audit --no-fund", env);
+      if (install.code !== 0) throw new Error(ended(install));
+    }
+    where = "npm test in ../02-automation-tests";
+    log.note(`${where} against this environment`);
+    log.blank();
+    const suite = await npm("test --silent", env);
+    if (suite.verdict === "FAIL") code = suite.code || 1; // the suite printed its [FAIL] lines, links and RESULT line
+    else if (suite.verdict === "PASS" && suite.code === 0) code = 0;
+    else {
+      // No RESULT line (a crash on import, say), or a PASS that the exit code contradicts.
+      log.blank();
+      const what = suite.verdict ? `after RESULT ${suite.verdict}` : "before its RESULT line";
+      const verdict = suite.verdict ? `example 02's suite ${ended(suite)}` : "example 02's suite did not finish";
+      code = stop(`${where}: ${ended(suite)} ${what}`, suite.error && reason(suite.error), verdict);
+    }
   } catch (err) {
-    console.error("\n✖ settlement checks FAILED");
-    console.error(err instanceof Error ? err.message : err);
-    if (cleanup) await deleteTestNets([tn.id]);
-    process.exit(1);
+    const failure = err as { error?: { message?: string }; shortMessage?: string; message?: string };
+    const why = (failure.error?.message ?? failure.shortMessage ?? failure.message ?? String(err)).split("\n")[0];
+    code = stop(`${where}: ${why}`, undefined, "example 02's suite did not run");
   }
-
-  // --- CI teardown vs. keep-for-inspection ---
-  if (cleanup) {
-    await deleteTestNets([tn.id]);
-    console.log("\nTore down the ephemeral Environment (mirrors CI mode).");
-  } else {
-    console.log("\nShowcase in the UI — open the Environment and inspect this PR's run:");
-    console.log(`  ${tn.dashboardUrl}`);
-    console.log("    • Transactions  — two decoded USDC settlements");
-    console.log("    • Call trace    — open a settlement -> USDC.transfer, decoded");
-    console.log("    • State diff    — balances moved on the settled accounts");
-    console.log("    • Gas Profiler  — per-call gas for each settlement");
-    console.log("  (In CI, mode:CI tears this down automatically. Re-run with --cleanup to do the same.)");
-  }
+  summary(code === 0);
+  return code;
 }
 
-main().catch((err) => {
-  console.error(err instanceof Error ? err.message : err);
-  process.exit(1);
-});
+main().then(
+  (code) => (process.exitCode = code),
+  (err) => (process.exitCode = log.fatal(err)),
+);

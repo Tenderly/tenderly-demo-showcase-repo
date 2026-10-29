@@ -5,7 +5,7 @@
  */
 import { AbiCoder, Interface, ZeroAddress, getAddress, id as topicId, zeroPadValue, type JsonRpcProvider, type Log } from "ethers";
 import { multicall, type ContractCall } from "./multicall.js";
-import { getLogsChunked } from "./tenderly.js";
+import { getLogsChunked } from "./logs.js";
 
 const MARKET_PARAMS = "(address loanToken, address collateralToken, address oracle, address irm, uint256 lltv)";
 const MARKET = "(uint128 totalSupplyAssets, uint128 totalSupplyShares, uint128 totalBorrowAssets, uint128 totalBorrowShares, uint128 lastUpdate, uint128 fee)";
@@ -20,6 +20,8 @@ export const metaMorphoI = new Interface([
   "function balanceOf(address) view returns (uint256)",
   "function convertToAssets(uint256 shares) view returns (uint256)",
   "function maxRedeem(address owner) view returns (uint256)",
+  "function maxWithdraw(address owner) view returns (uint256)",
+  "function previewWithdraw(uint256 assets) view returns (uint256)",
   "function redeem(uint256 shares, address receiver, address owner) returns (uint256 assets)",
   "function MORPHO() view returns (address)",
   "function withdrawQueueLength() view returns (uint256)",
@@ -106,7 +108,7 @@ export async function readVault(p: JsonRpcProvider, vault: string): Promise<Vaul
   const address = getAddress(vault);
   const mm = (fn: string, args: unknown[] = []): ContractCall => ({ target: address, iface: metaMorphoI, fn, args, allowFailure: true });
   const head = await multicall(p, ["MORPHO", "name", "symbol", "asset", "withdrawQueueLength"].map((fn) => mm(fn)));
-  if (head.some((r) => !r)) throw new Error(`${address} doesn't answer as a MetaMorpho (Morpho Vault V1) vault`);
+  if (head.some((r) => !r)) throw new Error(`${address.slice(0, 6)}…${address.slice(-4)} isn't a Morpho Vault V1 (MetaMorpho)`);
   const [morpho, name, symbol, asset, wqLen] = head.map((r) => r![0]);
   const ids = (await multicall(p, Array.from({ length: Number(wqLen) }, (_, i) => mm("withdrawQueue", [i])))).map((r) => r![0] as string);
   const reads = await multicall(p, [
@@ -161,15 +163,18 @@ export async function readState(p: JsonRpcProvider, v: Pick<Vault, "address" | "
 /** What the vault's depositors could withdraw right now: every market's withdrawable amount, summed. */
 export const exitCapacity = (s: VaultState): bigint => Object.values(s.markets).reduce((sum, m) => sum + m.withdrawable, 0n);
 
-/** Each market's borrow APR now, from its interest rate model; a market without one (idle) pays nothing. */
-export async function borrowAprs(p: JsonRpcProvider, morpho: string, markets: VaultMarket[]): Promise<Map<string, number>> {
+/**
+ * Each market's borrow APR now (1e18 is 100%): the interest rate model's per-second rate times a year's seconds. A
+ * market without a model (idle) pays nothing.
+ */
+export async function borrowAprs(p: JsonRpcProvider, morpho: string, markets: VaultMarket[]): Promise<Map<string, bigint>> {
   const priced = markets.filter((m) => m.params.irm !== ZeroAddress);
   const totals = await multicall(p, priced.map((m): ContractCall => ({ target: morpho, iface: morphoBlueI, fn: "market", args: [m.id] })));
   const rates = await multicall(p, priced.map((m, i): ContractCall => ({ target: m.params.irm, iface: irmI, fn: "borrowRateView", args: [m.params, [...totals[i]!]], allowFailure: true })));
   return new Map(markets.map((m) => {
     const i = priced.indexOf(m);
     const perSecond = i < 0 || !rates[i] ? 0n : (rates[i]![0] as bigint);
-    return [m.id, (Number(perSecond) / 1e18) * 365 * 24 * 3600];
+    return [m.id, perSecond * 31_536_000n];
   }));
 }
 

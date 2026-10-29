@@ -1,76 +1,109 @@
-#!/usr/bin/env tsx
-/**
- * Auto-mine indexing (2/2) — mint a block every N seconds.
- *
- * Long-running: every MINE_INTERVAL_SECONDS (default 10) it sends
- * `evm_increaseBlocks` to the Virtual Environment's Admin RPC, so the chain keeps
- * producing blocks even with zero transactions — indexers, subgraphs, and
- * block-polling apps pointed at the (public) RPC see a live chain.
- *
- * Target resolution: MINE_RPC_URL env var, else out/vnet.json written by
- * create-vnet.ts. Stop with Ctrl-C. Knobs:
- *   MINE_INTERVAL_SECONDS  default 10
- *   MINE_BLOCKS            blocks per tick, default 1
- */
-import { config } from "dotenv";
-import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
-import { existsSync, readFileSync } from "node:fs";
-import { ethers } from "ethers";
-import { providerFor, bold, dim, green, section } from "./lib/tenderly.js";
+// npm run mine: one block per tick on the chain in out/environment.json, so an indexer pointed at it sees new blocks.
+// Each tick sends evm_increaseBlocks(1) to the Admin RPC, on a fixed clock: every 10 s, or 12 s with State Sync.
+// Ctrl-C prints a summary and the links. A JSON-RPC -32004 rejection (such as the write limit) stops it with exit code 1.
+import type { JsonRpcProvider } from "ethers";
+import * as log from "./lib/log.js";
+import { providerFor } from "./lib/tenderly.js";
+import { dateTime, envSeconds, gap, hms, isRejected, num, reason, ticks, wrapped } from "./lib/run.js";
+import { printLinks, readEnvironmentFile } from "./lib/vnet.js";
 
-// shared repo-root .env — found by walking upward, so the folder can move
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const findEnv = (start: string): string | null => {
-  for (let d = start, i = 0; i < 8; i++) {
-    const candidate = resolve(d, ".env");
-    if (existsSync(candidate)) return candidate;
-    const parent = dirname(d);
-    if (parent === d) break;
-    d = parent;
-  }
-  return null;
-};
-const envPath = findEnv(__dirname);
-config(envPath ? { path: envPath } : {});
+const FAILS_IN_A_ROW = 6; // other errors, such as a dropped connection, retry on the next tick up to this many times
 
-const INTERVAL_S = Number(process.env.MINE_INTERVAL_SECONDS ?? 10);
-const BLOCKS_PER_TICK = Number(process.env.MINE_BLOCKS ?? 1);
-
-function resolveRpc(): string {
-  if (process.env.MINE_RPC_URL) return process.env.MINE_RPC_URL;
-  const path = resolve(__dirname, "out/vnet.json");
-  if (!existsSync(path)) {
-    throw new Error("no target: set MINE_RPC_URL or run `npm run create` first (writes out/vnet.json)");
-  }
-  return (JSON.parse(readFileSync(path, "utf8")) as { adminRpc: string }).adminRpc;
+interface Block {
+  number: number;
+  timestamp: number;
 }
 
-async function main(): Promise<void> {
-  const rpc = resolveRpc();
-  const p = providerFor(rpc);
-  const start = await p.getBlockNumber();
-  section(`Auto-mine — +${BLOCKS_PER_TICK} block${BLOCKS_PER_TICK > 1 ? "s" : ""} every ${INTERVAL_S}s`);
-  console.log(`  target: ${rpc}`);
-  console.log(`  block now: ${bold(String(start))} — Ctrl-C to stop\n`);
+/** Mine one block. evm_increaseBlocks returns the hash of the cheat-code transaction it puts in that block. */
+async function mineOne(p: JsonRpcProvider): Promise<Block> {
+  const hash: string = await p.send("evm_increaseBlocks", ["0x1"]);
+  const receipt = await p.getTransactionReceipt(hash);
+  const block = await p.getBlock(receipt?.blockNumber ?? "latest");
+  if (!block) throw new Error("no block after evm_increaseBlocks");
+  return { number: block.number, timestamp: block.timestamp };
+}
 
-  let ticks = 0;
-  let stopping = false;
-  process.on("SIGINT", () => { stopping = true; });
+const blocks = (n: number): string => `${num(n)} block${n === 1 ? "" : "s"}`;
 
-  while (!stopping) {
-    await new Promise((r) => setTimeout(r, INTERVAL_S * 1000));
-    if (stopping) break;
-    try {
-      await p.send("evm_increaseBlocks", [ethers.toQuantity(BLOCKS_PER_TICK)]);
-      const block = await p.getBlock("latest");
-      ticks++;
-      console.log(`  ${green("⛏")} tick ${String(ticks).padStart(4)} · block ${bold(String(block!.number))} · ts ${new Date(Number(block!.timestamp) * 1000).toISOString()} ${dim(`(+${start === block!.number ? 0 : block!.number - start} since start)`)}`);
-    } catch (e) {
-      console.log(`  ✘ tick failed: ${(e as Error).message.slice(0, 120)} ${dim("— retrying next interval")}`);
+async function main(): Promise<number> {
+  const f = readEnvironmentFile();
+  const interval = envSeconds("MINE_INTERVAL_SECONDS", f.stateSync ? 12 : 10);
+  const p = providerFor(f.adminRpc, f.chainId);
+  log.run("Auto-mine", `${f.name}, State Sync ${f.stateSync ? "on" : "off"}`, 1);
+  log.step(`Mine one block every ${interval} s until Ctrl-C`);
+
+  let failure = "";
+  let details: string[] = []; // printed under the [FAIL] line
+  let mined = 0;
+  let others = 0; // blocks that other writes (a send from the dashboard, a test) mined between two ticks
+  let prev: Block | undefined;
+  try {
+    const head = await p.getBlock("latest");
+    if (!head) throw new Error("no latest block");
+    prev = { number: head.number, timestamp: head.timestamp };
+    log.ok(`head ${num(head.number)} at ${dateTime(head.timestamp)}`);
+    if (f.stateSync) log.sub("with State Sync each new block takes the time of Ethereum's latest block");
+    log.note(`${"block".padEnd(12)} ${"time (UTC)".padEnd(12)} gap to the previous block`);
+
+    let failsInARow = 0;
+    for await (const _ of ticks(interval * 1000)) {
+      let b: Block;
+      try {
+        b = await mineOne(p);
+      } catch (err) {
+        if (isRejected(err)) {
+          failure = `evm_increaseBlocks rejected after block ${num(prev.number)} (JSON-RPC -32004)`;
+          details = [reason(err)];
+          // The write limit and the monthly usage limit share this message; only the write limit is per environment.
+          if (/quota limit/i.test(details[0])) {
+            details.push("write limit (npm run create makes a new environment) or monthly usage limit");
+          }
+          break;
+        }
+        failsInARow += 1;
+        if (failsInARow >= FAILS_IN_A_ROW) {
+          failure = `${failsInARow} ticks in a row failed after block ${num(prev.number)}: ${reason(err)}`;
+          break;
+        }
+        wrapped(log.warn, `tick failed: ${reason(err)}; next tick in ${interval} s`);
+        continue;
+      }
+      failsInARow = 0;
+      // Each row must be a new block after the one above it; anything else (a revert elsewhere) stops the count.
+      if (b.number <= prev.number) {
+        failure = `block ${num(b.number)} is not after block ${num(prev.number)}, so something reverted the chain`;
+        break;
+      }
+      const skipped = b.number - prev.number - 1;
+      const seconds = b.timestamp - prev.timestamp;
+      // The first block's gap would count from the head block, which can be minutes old, so that row says "first".
+      const first = mined === 0;
+      const note = skipped > 0
+        ? `${num(skipped)} more from other writes`
+        : f.stateSync && !first && seconds === 0 ? "same Ethereum block" : "";
+      const gapCell = first ? "first" : gap(seconds);
+      log.line(`${num(b.number).padEnd(12)} ${hms(b.timestamp).padEnd(12)} ${gapCell.padEnd(10)} ${note}`.trimEnd());
+      others += skipped;
+      mined += 1;
+      prev = b;
     }
+  } catch (err) {
+    failure = `read the head block: ${reason(err)}`;
   }
-  console.log(dim(`\n  stopped after ${ticks} ticks (${ticks * BLOCKS_PER_TICK} blocks mined)`));
+
+  if (failure) {
+    wrapped(log.fail, failure);
+    for (const d of details) wrapped(log.sub, d);
+  }
+  log.blank();
+  printLinks(f.links);
+  if (failure) return log.result(false, mined === 0 ? "no block mined" : `stopped after ${blocks(mined)}`);
+  if (mined === 0) return log.result(true, "no block mined before Ctrl-C");
+  const extra = others > 0 ? `, ${num(others)} more from other writes` : "";
+  // With State Sync each block takes Ethereum's latest block time, so the gaps follow Ethereum, not the tick.
+  return log.result(true, f.stateSync
+    ? `${blocks(mined)} mined${extra}; block times follow Ethereum`
+    : `${blocks(mined)} mined, one every ${interval} s${extra}`);
 }
 
-main().catch((e) => { console.error(`\n✘ ${e instanceof Error ? e.message : e}`); process.exit(1); });
+main().then((code) => process.exit(code), (err) => process.exit(log.fatal(err)));

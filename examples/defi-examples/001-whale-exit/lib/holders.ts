@@ -5,7 +5,7 @@
  */
 import { Interface, ZeroAddress, getAddress, id as topicId, type JsonRpcProvider } from "ethers";
 import { multicall, type ContractCall } from "./multicall.js";
-import { getLogsChunked } from "./tenderly.js";
+import { getLogsChunked } from "./logs.js";
 
 const TRANSFER = topicId("Transfer(address,address,uint256)");
 const tokenI = new Interface(["function totalSupply() view returns (uint256)"]);

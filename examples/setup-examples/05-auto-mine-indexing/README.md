@@ -1,52 +1,61 @@
 # 05 · Auto-mine for indexing
 
-Virtual Environments mine on demand, so a block appears only when a transaction arrives. Indexers, subgraphs and block-polling apps expect a chain that keeps moving. These scripts create an environment, then mine an empty block every 10 seconds so anything pointed at its RPC sees a live chain.
-
-```mermaid
-flowchart LR
-    A["create-vnet.ts:<br/>POST /environments → out/vnet.json"] --> B["auto-mine.ts:<br/>evm_increaseBlocks every 10 s"]
-    B --> C["indexer / subgraph follows the<br/>public RPC, steady block height"]
-```
+A [Virtual Environment](https://docs.tenderly.co/virtual-environments/overview) mines a block only when a transaction arrives, so an indexer pointed at a quiet one sees no new blocks. `npm run mine` mines one block per tick with the [Admin RPC](https://docs.tenderly.co/virtual-environments/admin-rpc) cheat code `evm_increaseBlocks`, and `npm run watch-state` shows that state stays at the fork block unless [State Sync](https://docs.tenderly.co/virtual-environments/state-sync) is on.
 
 ## Run
 
-The config is the shared repo-root `.env` (`TENDERLY_ACCESS_KEY` / `TENDERLY_ACCOUNT` / `TENDERLY_PROJECT`).
+Needs the repo-root `.env` (see the root README).
 
 ```bash
-cd examples/05-auto-mine-indexing
 npm install
-
-npm run create        # 1) create the Environment, write out/vnet.json
-npm run mine          # 2) long-running: +1 block every 10 s (Ctrl-C to stop)
-npm run watch-state   # 3) optional: is state following live mainnet?
+npm run create        # fork Ethereum; out/environment.json gets publicRpc for the indexer
+npm run mine          # one block every 10 s until Ctrl-C
+npm run watch-state   # in a second terminal, read the state until Ctrl-C
 ```
 
-Settings (environment variables):
+## Options
 
-| Var | Default | Meaning |
-| --- | --- | --- |
-| `FORK_BLOCK` | `latest` | fork point for a plain `npm run create` (a State Sync fork always starts at latest) |
-| `STATE_SYNC` | `false` | `true` creates the environment with State Sync, so unmodified state follows live mainnet |
-| `MINE_INTERVAL_SECONDS` | `10` | seconds between ticks |
-| `MINE_BLOCKS` | `1` | blocks mined per tick |
-| `MINE_RPC_URL` / `WATCH_RPC_URL` | (none) | target an existing environment instead of `out/vnet.json` |
-| `WATCH_INTERVAL_SECONDS` | `10` | seconds between state reads |
+| Variable | Default | Meaning |
+|---|---|---|
+| `FORK_BLOCK` | latest | The block `npm run create` forks at. It can't be combined with `STATE_SYNC=true`. |
+| `STATE_SYNC` | `false` | `true` makes `npm run create` fork the latest block with State Sync on. Needs a paid plan. |
+| `MINE_INTERVAL_SECONDS`, `WATCH_INTERVAL_SECONDS` | 10, or 12 with State Sync | Seconds between mined blocks, and between reads. |
 
-## State Sync check
+## Example output
 
-State Sync is available on Tenderly's paid plan. It's set when the environment is created and can't be switched on or off later.
+```
+$ npm run watch-state   # plain fork, after npm run mine added 3 blocks
+Tenderly  ·  Watch state
+auto-mine-indexing-20261029-070638, State Sync off
 
-`watch-state.ts` polls two values that change on mainnet nearly every block, the Uniswap V3 USDC/WETH pool's `slot0` price and its WETH balance. It reads them from the environment's RPC and marks each tick `→ CHANGED` or `· frozen`.
+[1/1] Read the ETH price and WETH supply at the fork block, then every 10 s until Ctrl-C
+  time (UTC)   head block   ETH (USDC)   WETH supply    changed
+  fork         26,296,793   2,310.48     2,218,769.35   baseline
+  …
+  07:07:45     26,296,796   2,310.48     2,218,769.35   none
 
-- On a plain fork (`npm run create`) every tick is frozen, because state stays at the fork point.
-- On a State Sync fork (`STATE_SYNC=true npm run create`) live mainnet state drifts in, so the values change. Keep `npm run mine` running in another terminal while you watch, because a State Sync environment catches up with mainnet each time it mines a block.
+  [link] environment     https://dashboard.tenderly.co/<account>/<project>/testnets/<env>/instance/<instance>
+  [link] transactions    https://dashboard.tenderly.co/<account>/<project>/testnets/<env>/instance/<instance>/activity/transactions
 
-State Sync covers unmodified state only. Accounts you change with cheat codes or transactions keep your values.
+RESULT  PASS   no change in 3 reads, state stays at the fork block   35s
 
-`create-vnet.ts` turns State Sync on with `syncStateConfig` in the network config, on the environments endpoint `POST /api/v1/account/{account}/project/{project}/environments`. The snake_case `/api/public/v1/.../environments` endpoint, which the plain fork uses, ignores the setting.
+$ npm run watch-state   # STATE_SYNC=true fork, npm run mine stopped at block 26,296,802
+…
+[1/1] Read the ETH price and WETH supply every 12 s until Ctrl-C
+  time (UTC)   head block   ETH (USDC)   WETH supply    changed
+  07:08:28     26,296,802   2,310.35     2,218,783.21   baseline
+  07:08:41     26,296,802   2,310.35     2,218,784.39   supply
+  07:08:53     26,296,802   2,310.35     2,218,784.50   supply
+  07:09:05     26,296,802   2,310.35     2,218,784.50   none
+  07:09:17     26,296,802   2,310.35     2,218,785.10   supply
+  07:09:29     26,296,802   2,310.36     2,218,789.99   price, supply
+…
+RESULT  PASS   WETH supply changed in 4 of 5 reads, price in 1, no new block   1m 1s
+```
 
-## What you see
+## Notes
 
-`npm run create` prints the Admin RPC for the miner, the Public RPC for the indexer, and the dashboard link. `npm run mine` logs one line per tick with the block number and timestamp, and the dashboard's block height climbs with it. On a plain fork the mined blocks are empty and carry wall-clock timestamps, so pollers that use `eth_getBlockByNumber` or `eth_subscribe` behave as they would against a public network.
-
-Point your indexer at the Public RPC from `out/vnet.json` and keep the miner running while it indexes.
+- Each tick mines a block that holds one cheat-code transaction, and each counts toward the environment's [write limit](https://docs.tenderly.co/platform/account/billing/limits#virtual-environment-write-limits). At the limit the miner stops with JSON-RPC error `-32004` and exit code 1.
+- State Sync can't be switched on or off after creation, and it syncs state only, so an indexer gets no Ethereum blocks or events from after the fork. [Network Mirror Mode](https://docs.tenderly.co/virtual-environments/develop/thegraph#which-virtual-environment-modes-index-parent-network-events) brings them.
+- `npm run watch-state` reads the ETH price in the Uniswap V3 USDC/WETH 0.05% pool and the WETH supply through the Public RPC. The State Sync verdict rests on the supply, which moves in nearly every Ethereum block. The price moves less often.
+- `STATE_SYNC=true` creates the VNet with `POST /api/v1/account/{account}/project/{project}/vnets`, which the [Create Virtual Environments via API](https://docs.tenderly.co/virtual-environments/develop/create-virtual-environment-via-api) guide covers but the [API reference](https://docs.tenderly.co/api-reference) doesn't. The reference's environments list shows that VNet as an environment, so its links are the same.

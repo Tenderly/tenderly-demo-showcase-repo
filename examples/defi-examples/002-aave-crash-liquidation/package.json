@@ -1,0 +1,23 @@
+{
+  "name": "tenderly-demo-defi-002-aave-crash-liquidation",
+  "private": true,
+  "type": "module",
+  "description": "Drop Aave V3's WETH price on a Virtual Environment, count the positions that fall below health factor 1, and liquidate the worst one.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "demo": "tsx aave-crash.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "dotenv": "^16.4.5",
+    "ethers": "^6.13.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.4",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.2"
+  }
+}

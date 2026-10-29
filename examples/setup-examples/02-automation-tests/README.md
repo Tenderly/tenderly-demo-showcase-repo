@@ -1,48 +1,58 @@
-# 02 · Automation test suite on RPC and cheat codes
+# 02 · Automation tests
 
-How can RPC endpoints and cheat codes drive a Virtual Environment from an automation test suite?
-
-Each environment exposes standard JSON-RPC, so any tool (`ethers`, `viem`, `cast`, your test framework) works unchanged. The Admin RPC adds cheat codes that make tests deterministic without keys or funding. This is an ordinary arrange, act, assert suite, run against a fork of mainnet.
-
-| Cheat code | Purpose |
-|------------|---------|
-| `tenderly_setErc20Balance(token, holder, amount)` | Mint any ERC-20 balance. |
-| `tenderly_setBalance([addrs], wei)` | Fund gas. |
-| impersonated `eth_sendTransaction({from, …})` | Transact as any address, no key. |
-| `evm_snapshot()` / `evm_revert(id)` | Snapshot state, then roll it back, to isolate test cases without a new environment. |
-| `evm_increaseTime(hexSeconds)` | Move the chain clock forward to test time-dependent logic. |
+`settlement.test.ts` is a `node:test` suite that seeds balances with the `tenderly_setErc20Balance` and `tenderly_setBalance` [Admin RPC cheat codes](https://docs.tenderly.co/virtual-environments/admin-rpc), settles 250,000 USDC from an impersonated treasury, rolls a probe back with `evm_snapshot` and `evm_revert`, and moves the clock 30 days with `evm_increaseTime`. Each run creates its own Virtual Environment, a fork of Ethereum.
 
 ## Run
 
+Needs the repo-root `.env` (see the root README).
+
 ```bash
 npm install
-npm test                  # provisions/reuses the qa Environment, then arrange/act/assert
-TEST_ENV=uat npm test     # target a different environment
+npm test
 ```
 
+## Options
+
+| Variable | What it does |
+|---|---|
+| `TENDERLY_ADMIN_RPC_URL_1`, `TENDERLY_PUBLIC_RPC_URL_1` | Run on this environment instead of creating one. The suite overwrites balances, reverts and moves the clock, so use one nobody else shares. [Example 04](../04-ci-cd/) sets both. |
+| `TENDERLY_ENVIRONMENT_ID`, `TENDERLY_INSTANCE_ID`, `TENDERLY_VNET_ID_1` | Ids for the dashboard links when the RPC URLs come from outside. |
+
+## Example output
+
 ```
-▶ treasury USDC settlement on a Virtual Environment
-  ✔ arrange: cheat codes seed deterministic balances and gas
-  ✔ act + assert: settle 250,000 USDC and verify the deltas
-  ✔ profile: gas used is sane (Gas Profiler breaks it down in the dashboard)
-  ✔ cheat code: evm_snapshot / evm_revert resets state between cases
-  ✔ cheat code: evm_increaseTime advances the chain clock
+Tenderly  ·  Settlement tests
+a 250,000 USDC treasury settlement, tested on an Ethereum fork
+
+[1/5] Environment
+  [ok]   environment acme-treasury-tests-20261029-070835, block 26,296,802, chain id 73571
+
+[2/5] Seed balances
+  [ok]   tenderly_setErc20Balance: treasury 0x1111…1111 holds 1,000,000 USDC
+  [ok]   counterparty 0x2222…2222 holds 0 USDC
+  [ok]   tenderly_setBalance: both hold 100 ETH
+
+[3/5] Settle 250,000 USDC
+  [ok]   sent without the treasury's key, block 26,296,806, gas used 62,260
+  [ok]   treasury 750,000 USDC, counterparty 250,000 USDC
+
+[4/5] Snapshot and revert
+  [ok]   evm_snapshot: taken at block 26,296,806
+  [ok]   50,000 USDC probe in block 26,296,807, treasury 700,000 USDC
+  [ok]   evm_revert: back to block 26,296,806, the probe and its block are gone
+  [ok]   treasury 750,000 USDC again
+
+[5/5] Move the clock 30 days
+  [ok]   evm_increaseTime: new block 26,296,807, clock 2026-10-29 → 2026-11-28 UTC
+
+  [link] environment     https://dashboard.tenderly.co/<account>/<project>/testnets/<env>/instance/<instance>
+  [link] transactions    https://dashboard.tenderly.co/<account>/<project>/testnets/<env>/instance/<instance>/activity/transactions
+  [link] settlement tx   https://dashboard.tenderly.co/<account>/<project>/testnets/<env>/instance/<instance>/container/<vnet>/tx/0x5169bd245b38d7bea9ece34c7de512823ea8757897f3359a9527b971222110b4
+
+RESULT  PASS   4 of 4 tests passed   5s
 ```
 
-`settlement.test.ts` uses the built-in Node test runner (`node:test`). Its steps:
+## Notes
 
-- Arrange. `tenderly_setErc20Balance` mints USDC and `tenderly_setBalance` funds gas.
-- Act. Impersonate the treasury wallet and `transfer` USDC with an unsigned `eth_sendTransaction` (no key). It mines one block.
-- Assert. Read the balances back over JSON-RPC and check the deltas.
-- Profile. Read the settlement's `gasUsed`. The dashboard's Gas Profiler breaks it down per internal call.
-- Reset. Take an `evm_snapshot` before a change and `evm_revert` to roll it back, which is how a suite isolates cases on a shared environment. The revert also removes the reverted transactions from the environment.
-- Time. `evm_increaseTime` moves the chain clock about 30 days forward to exercise time-dependent logic (settlement windows, accrual).
-
-Run locally, the suite uses the shared `qa` environment, so its revert and its 30-day time jump happen there too. Set `TEST_ENV` to run it on an environment of its own.
-
-The same file runs locally and in CI. It picks its RPC in this order:
-
-1. In CI, `TENDERLY_ADMIN_RPC_URL_1` and `TENDERLY_PUBLIC_RPC_URL_1` from the Tenderly GitHub Action (see `04-ci-cd`).
-2. Locally, `TENDERLY_ADMIN_RPC` and `RPC_URL` if they're set. Otherwise it creates or reuses the `qa` environment.
-
-Open the settlement transaction in the dashboard for the decoded call trace, state diff and Gas Profiler.
+- `evm_revert` takes the probe and its block off the chain and out of the default Activity list, so the 30-day jump gets the probe's block number. The settlement stays.
+- `lib/reporter.ts` replaces node:test's own output. A failing test prints `[FAIL]` with the reason, and the exit code is 1.

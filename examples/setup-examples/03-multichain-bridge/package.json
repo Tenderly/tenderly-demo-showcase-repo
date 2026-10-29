@@ -1,14 +1,17 @@
 {
-  "name": "tenderly-demo-03-multichain-bridge",
-  "version": "1.0.0",
+  "name": "tenderly-demo-setup-03-multichain-bridge",
+  "description": "One Virtual Environment over Ethereum and Base. A CCTP V2 burn on Ethereum is minted on Base by the bridge module.",
   "private": true,
   "type": "module",
-  "description": "Multichain Virtual Environment (Ethereum + Base) with a cross-chain CCTP transfer relayed by Tenderly.",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "bridge": "tsx multichain-bridge.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "chalk": "^5.3.0",
     "dotenv": "^16.4.5",
     "ethers": "^6.13.2"
   },

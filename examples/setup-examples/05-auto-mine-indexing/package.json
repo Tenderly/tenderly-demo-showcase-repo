@@ -1,9 +1,12 @@
 {
-  "name": "tenderly-demo-05-auto-mine-indexing",
+  "name": "tenderly-demo-setup-05-auto-mine-indexing",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Auto-mine for indexing: create a Virtual Environment via API, then mint a block every 10 seconds so indexers pointed at the RPC see a live chain.",
+  "description": "Fork Ethereum into a Virtual Environment and mine one block per tick, so an indexer pointed at its RPC sees a moving chain.",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "create": "tsx create-vnet.ts",
     "mine": "tsx auto-mine.ts",
@@ -11,6 +14,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "chalk": "^5.3.0",
     "dotenv": "^16.4.5",
     "ethers": "^6.13.2"
   },

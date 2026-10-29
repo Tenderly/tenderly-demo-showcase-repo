@@ -1,15 +1,19 @@
 {
-  "name": "tenderly-demo-06-whale-exit",
+  "name": "tenderly-demo-defi-001-whale-exit",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "A vault's largest depositor withdraws everything on a Virtual Environment: what they get, what stays stuck, which markets it drains, and which other vaults lose exit liquidity.",
+  "description": "A Morpho vault's largest depositor withdraws everything on a Virtual Environment forked from Ethereum.",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "demo": "tsx whale-exit.ts",
     "demo:fail": "tsx whale-exit.ts --min-exit-pct 60",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "chalk": "^5.3.0",
     "dotenv": "^16.4.5",
     "ethers": "^6.13.2"
   },

@@ -1,14 +1,18 @@
 {
-  "name": "tenderly-demo-02-automation-tests",
+  "name": "tenderly-demo-setup-02-automation-tests",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Automation test suite that seeds state with cheat codes and asserts a settlement on a Virtual Environment.",
+  "description": "A node:test suite that seeds balances with cheat codes and checks a USDC settlement on a Virtual Environment.",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
-    "test": "tsx settlement.test.ts",
+    "test": "tsx --test-reporter=./lib/reporter.ts settlement.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "chalk": "^5.3.0",
     "dotenv": "^16.4.5",
     "ethers": "^6.13.2"
   },

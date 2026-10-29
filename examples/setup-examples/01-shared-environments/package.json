@@ -1,14 +1,17 @@
 {
-  "name": "tenderly-demo-01-shared-environments",
-  "version": "1.0.0",
+  "name": "tenderly-demo-setup-01-shared-environments",
+  "description": "Creates or reuses one Virtual Environment per stage (dev, qa, uat) that the whole team shares.",
   "private": true,
   "type": "module",
-  "description": "Provision persistent dev/qa/uat Virtual Environments a full-stack team shares.",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "provision": "tsx provision.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "chalk": "^5.3.0",
     "dotenv": "^16.4.5",
     "ethers": "^6.13.2"
   },
