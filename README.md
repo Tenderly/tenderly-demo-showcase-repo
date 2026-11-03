@@ -16,6 +16,7 @@ TENDERLY_PROJECT=...
 
 Each example is a folder of its own: `cd` into it, run `npm install`, then its command. Each run creates its own
 Virtual Environment and keeps it, so the dashboard links it prints keep working. Delete old ones in the dashboard.
+The one exception is example 04 with `--cleanup`, which CI uses: it deletes the environment when the suite passes.
 
 ## Setup examples
 

@@ -81,5 +81,6 @@ To copy one example into another project: `npx degit Tenderly/tenderly-demo-show
 
 ## Environments stay
 
-The examples never delete environments, so their dashboard links keep working. Ask the user before deleting an
-environment you didn't create.
+The examples keep their environments, so their dashboard links keep working. The one exception is example 04 with
+`--cleanup`, which CI uses: it deletes the environment when the suite passes and keeps it when the suite fails. Ask the
+user before deleting an environment you didn't create.
