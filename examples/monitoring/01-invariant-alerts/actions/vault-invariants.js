@@ -1,5 +1,6 @@
 // Web3 Action run by the "Morpho bad debt" alert. It checks steakUSDC's two invariants on the alerted
-// transaction and logs one verdict line. One CommonJS file: the Web3 Actions runtime provides ethers v5 and
+// transaction and logs one verdict line: BROKEN when the share price fell, WARN when a market steakUSDC lends to
+// booked bad debt but the share price held, HOLD otherwise. One CommonJS file: the Web3 Actions runtime provides ethers v5 and
 // @tenderly/actions, and reads Ethereum through Tenderly's node (context.gateways), so it needs no secrets.
 const { ethers } = require("ethers");
 const { Network } = require("@tenderly/actions");
@@ -45,7 +46,8 @@ const actionFn = async (context, alertEvent) => {
     return;
   }
 
-  // Invariant 1: markets steakUSDC lends to (its withdraw queue, before this block) never book bad debt.
+  // Invariant 1, a warning: markets steakUSDC lends to (its withdraw queue, before this block) book no bad debt. The
+  // vault absorbs it, so it matters to depositors only when it moves the share price.
   const vault = new ethers.Contract(VAULT, vaultAbi, provider);
   const before = { blockTag: block - 1 };
   const length = (await vault.withdrawQueueLength(before)).toNumber();
@@ -53,16 +55,19 @@ const actionFn = async (context, alertEvent) => {
   const lendsTo = new Set(queue.map((id) => id.toLowerCase()));
   const markets = await Promise.all(liquidations.map((e) => describe(provider, e, lendsTo)));
 
-  // Invariant 2: steakUSDC's share price never falls. One share in USDC at the end of block N-1 and of block N.
+  // Invariant 2, the one that breaks: steakUSDC's share price never falls. One share in USDC at the end of block N-1
+  // and of block N.
   const [p0, p1] = await Promise.all([
     vault.convertToAssets(ONE_SHARE, before),
     vault.convertToAssets(ONE_SHARE, { blockTag: block }),
   ]);
 
-  const broken = [];
-  if (markets.some((m) => m.lent)) broken.push("bad debt in a market steakUSDC lends to");
-  if (p1.lt(p0)) broken.push("share price fell");
-  const verdict = broken.length ? `BROKEN (${broken.join(", ")})` : "HOLD";
+  const exposed = markets.some((m) => m.lent);
+  const verdict = p1.lt(p0)
+    ? `BROKEN (share price fell${exposed ? ", bad debt in a market steakUSDC lends to" : ""})`
+    : exposed
+      ? "WARN (bad debt in a market steakUSDC lends to, share price held)"
+      : "HOLD";
   const debt = markets.map((m) => `${m.amount} in ${m.pair} (${m.id}${m.lent ? ", in steakUSDC's withdraw queue" : ""})`);
   const price = `${ethers.utils.formatUnits(p0, USDC_DECIMALS)} → ${ethers.utils.formatUnits(p1, USDC_DECIMALS)} USDC`;
   console.log(

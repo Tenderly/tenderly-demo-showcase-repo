@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "description": "A Morpho vault's largest depositor withdraws everything on a Virtual Environment forked from Ethereum.",
+  "license": "MIT",
   "engines": {
     "node": ">=22"
   },

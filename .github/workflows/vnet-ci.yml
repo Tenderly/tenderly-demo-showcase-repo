@@ -1,6 +1,10 @@
-# Runs example 04 on every pull request. It creates an environment and runs example 02's suite against it.
-# Repo settings: secret TENDERLY_ACCESS_KEY, variables TENDERLY_ACCOUNT_NAME and TENDERLY_PROJECT_NAME.
-# The environment stays up after the job, and the job summary links to it (login to the Tenderly project needed).
+# Typechecks every example and checks the shared/lib copies on every pull request, forks included: neither needs a
+# secret. Then runs example 04, which creates an environment, runs example 02's suite against it and deletes it when
+# the suite passes. A failing run keeps its environment, and the job summary links to it (login to the project needed).
+#
+# Setup: a GitHub Environment named "tenderly" holding the secret TENDERLY_ACCESS_KEY, with required reviewers or
+# deployment branches limited to main, so a branch can't change this file and read the key. Repo variables
+# TENDERLY_ACCOUNT_NAME and TENDERLY_PROJECT_NAME. Actions are pinned to commit SHAs; the comment names the tag.
 name: Virtual Environment CI
 
 on:
@@ -12,26 +16,79 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  settlement:
+  shared-lib:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - run: node scripts/sync-shared.mjs --check
+
+  typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        example:
+          - setup-examples/01-shared-environments
+          - setup-examples/02-automation-tests
+          - setup-examples/03-multichain-bridge
+          - setup-examples/04-ci-cd
+          - setup-examples/05-auto-mine-indexing
+          - defi-examples/001-whale-exit
+          - defi-examples/002-aave-crash-liquidation
+          - defi-examples/003-safe-batch-rehearsal
+          - defi-examples/004-policy-gate
+          - monitoring/01-invariant-alerts
+    defaults:
+      run:
+        working-directory: examples/${{ matrix.example }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: examples/${{ matrix.example }}/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+
+  vnet-suite:
+    needs: [shared-lib, typecheck]
     # Skips until the repo variables exist, and skips pull requests from forks, which get no secrets.
     if: vars.TENDERLY_ACCOUNT_NAME != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: tenderly
     steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version: 24
+          persist-credentials: false
 
-      - run: npm ci
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      - run: npm ci --no-audit --no-fund
         working-directory: examples/setup-examples/02-automation-tests
 
-      - run: npm ci
+      - run: npm ci --no-audit --no-fund
         working-directory: examples/setup-examples/04-ci-cd
 
-      - name: Create an environment and run example 02's suite
-        run: npm run ci -- --pr ${{ github.event.pull_request.number || github.run_number }}
+      - name: Create an environment, run example 02's suite, delete it on PASS
+        run: npm run ci -- --pr ${{ github.event.pull_request.number || github.run_number }} --cleanup
         working-directory: examples/setup-examples/04-ci-cd
         env:
           TENDERLY_ACCESS_KEY: ${{ secrets.TENDERLY_ACCESS_KEY }}

@@ -146,8 +146,8 @@ export function runSlug(base: string, at = new Date()): string {
 }
 
 /**
- * Create an environment: POST /environments (API reference, "Create Environment"). Nothing deletes it, so its
- * dashboard links keep working. One entry in `networks` per chain; more than one with `bridge` relays CCTP V2.
+ * Create an environment: POST /environments (API reference, "Create Environment"). It stays until someone deletes
+ * it, so its dashboard links keep working. One entry in `networks` per chain; more than one with `bridge` relays CCTP V2.
  */
 export async function createEnvironment(
   c: Credentials,
@@ -169,6 +169,11 @@ export async function createEnvironment(
 /** Read one environment: GET /environments/{id}. */
 export async function getEnvironment(c: Credentials, id: string): Promise<Environment> {
   return toEnvironment(await call<RawEnvironment>(c, "GET", `/environments/${id}`));
+}
+
+/** Delete an environment and its RPCs: DELETE /environments/{id}. Its dashboard links stop working. */
+export async function deleteEnvironment(c: Credentials, id: string): Promise<void> {
+  await call<unknown>(c, "DELETE", `/environments/${id}`);
 }
 
 /** Find an environment by slug: GET /environments, every page (100 per page; above 100 the API returns 50). */

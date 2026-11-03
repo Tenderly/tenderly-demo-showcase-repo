@@ -75,11 +75,21 @@ An alert on Morpho bad debt and a Web3 Action it triggers, both set up through t
   create, which uses a call from the docs guide.
 - Virtual Environments used to be called Virtual TestNets, and some API fields still use the old name.
 
+## Shared code
+
+`lib/tenderly.ts`, `lib/log.ts` and `lib/multicall.ts` are copies of the files in [`shared/lib`](shared/lib/), so each
+example folder works on its own when copied out of the repo. Edit `shared/lib`, then run `node scripts/sync-shared.mjs`.
+CI fails when a copy differs (`node scripts/sync-shared.mjs --check`).
+
 ## Using it with an AI agent
 
 The skill in [`.claude/skills/tenderly-examples`](.claude/skills/tenderly-examples/SKILL.md) maps a task to an example
 and lists the problems we hit. Claude Code loads it in this repo. To add it to another project, run:
 
 ```bash
-npx skills add Tenderly/tenderly-demo-showcase
+npx skills add Tenderly/tenderly-demo-showcase-repo
 ```
+
+## License
+
+[MIT](LICENSE)

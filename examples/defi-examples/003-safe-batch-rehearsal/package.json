@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Rehearse a Safe multisig batch on a Virtual Environment before anyone signs it: simulate it from the Safe's address with tenderly_simulateBundle, execute it through the Safe with impersonated owners, print what it changes and the hashes the signers will see.",
+  "license": "MIT",
   "engines": {
     "node": ">=22"
   },

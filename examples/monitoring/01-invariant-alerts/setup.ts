@@ -1,6 +1,6 @@
 // Sets up a monitor through the REST API: the Web3 Action in actions/vault-invariants.js and the "Morpho bad debt"
-// alert that runs it. The alert fires on a Morpho Blue Liquidate with bad debt on Ethereum; the action checks
-// steakUSDC's invariants. Reruns find both by name and update them in place.
+// alert that runs it. The alert fires on a Morpho Blue Liquidate on Ethereum that books at least 1,000 USDC of bad
+// debt; the action checks steakUSDC's invariants. Reruns find both by name and update them in place.
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -17,6 +17,10 @@ import {
 const MORPHO = "0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb"; // Morpho Blue on Ethereum
 const LIQUIDATE = "Liquidate(bytes32,address,address,uint256,uint256,uint256,uint256,uint256)";
 const LIQUIDATE_TOPIC = id(LIQUIDATE); // topic0, 0xa4946ede…7e41
+// badDebtAssets is in the market's loan token. steakUSDC lends only USDC (6 decimals), so this is 1,000 USDC there,
+// and it keeps dust liquidations out of the channel. The alert can't filter by market: a market with an 18-decimal
+// loan token still passes it with almost any amount, and the action logs HOLD for those.
+const MIN_BAD_DEBT = 1_000n * 10n ** 6n;
 const ACTION_NAME = "vault-invariants";
 const ALERT_NAME = "Morpho bad debt";
 const ACTION_FILE = resolve(dirname(fileURLToPath(import.meta.url)), "actions/vault-invariants.js");
@@ -36,7 +40,7 @@ const actionSpec = (source: string): ActionSpec => ({
 
 const alertSpec = (actionId: string, channelId: string): AlertSpec => ({
   name: ALERT_NAME,
-  description: "A Morpho Blue Liquidate on Ethereum that booked bad debt (badDebtAssets > 0). Runs the vault-invariants Web3 Action.",
+  description: `A Morpho Blue Liquidate on Ethereum that booked bad debt (badDebtAssets >= ${MIN_BAD_DEBT}). Runs the vault-invariants Web3 Action.`,
   color: "#ff5252",
   simple_type: "emitted_log_parameter",
   enabled: true,
@@ -51,7 +55,9 @@ const alertSpec = (actionId: string, channelId: string): AlertSpec => ({
         match_any: false,
         match_non_project_contracts: true,
         decode_events: true,
-        parameter_conditions: [{ parameter_name: "badDebtAssets", parameter_type: "uint", operator: ">", comparison_value: "0" }],
+        parameter_conditions: [{
+          parameter_name: "badDebtAssets", parameter_type: "uint", operator: ">", comparison_value: String(MIN_BAD_DEBT - 1n),
+        }],
       },
     },
   ],
@@ -235,7 +241,7 @@ async function main(): Promise<number> {
       if (changes.length) log.sub(`changed: ${changes.join(", ")}`);
     }
     links.push(["alert history", alertHistoryUrl(c)]);
-    log.ok(`Liquidate on Morpho Blue ${MORPHO.slice(0, 6)}…${MORPHO.slice(-4)} with badDebtAssets > 0, network 1`);
+    log.ok(`Liquidate on Morpho Blue ${MORPHO.slice(0, 6)}…${MORPHO.slice(-4)} with badDebtAssets >= ${MIN_BAD_DEBT}, network 1`);
     log.ok(`delivers to ${ACTION_NAME} and the ${channel.type} channel`);
 
     // 4. Read both back: exactly one of each, enabled and wired together.

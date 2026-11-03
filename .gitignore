@@ -1,7 +1,16 @@
 # Holds your access key. Never commit it.
 .env
+.env.*
+!.env.example
 
 node_modules/
 
 # Written by the examples: RPC URLs, ids and reports
 out/
+
+# Editors, OS and local agent settings
+.idea/
+.vscode/
+.DS_Store
+.claude/settings.local.json
+*.log

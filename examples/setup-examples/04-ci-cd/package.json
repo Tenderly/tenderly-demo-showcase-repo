@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Creates a Virtual Environment for a pull request and runs example 02's settlement suite against it, locally or in GitHub Actions.",
+  "license": "MIT",
   "engines": {
     "node": ">=22"
   },

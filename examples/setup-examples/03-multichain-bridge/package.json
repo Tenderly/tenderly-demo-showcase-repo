@@ -1,6 +1,7 @@
 {
   "name": "tenderly-demo-setup-03-multichain-bridge",
   "description": "One Virtual Environment over Ethereum and Base. A CCTP V2 burn on Ethereum is minted on Base by the bridge module.",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "engines": {

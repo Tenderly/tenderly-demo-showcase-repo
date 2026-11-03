@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Fork Ethereum into a Virtual Environment and mine one block per tick, so an indexer pointed at its RPC sees a moving chain.",
+  "license": "MIT",
   "engines": {
     "node": ">=22"
   },

@@ -16,6 +16,7 @@ npm run ci -- --pr 4217
 | Flag | What it does |
 |---|---|
 | `--pr <n>` | Puts the pull request number in the slug (`acme-ci-<n>-<date>-<time>`) and the name (`Acme Treasury CI PR <n>`). Without it the slug says `local`. |
+| `--cleanup` | Deletes the environment (`DELETE /environments/{id}`) when the suite passes. A failing run keeps it, so its links work for debugging. Without the flag every run keeps its environment. |
 
 ## Example output
 
@@ -47,7 +48,7 @@ The settlement tx hash can be the same as in 02's own run, because the same send
 
 ## Notes
 
-- The workflow runs `npm run ci -- --pr <number>` with the pull request number, or the run number on pushes to `main` and manual runs. It needs the secret `TENDERLY_ACCESS_KEY` and the variables `TENDERLY_ACCOUNT_NAME` and `TENDERLY_PROJECT_NAME`, and it skips pull requests from forks, which get no secrets.
-- In GitHub Actions the script masks both RPC URLs in the job log and adds the links to the job summary. Each run keeps its environment, so those links keep working.
+- The workflow runs `npm run ci -- --pr <number> --cleanup` with the pull request number, or the run number on pushes to `main` and manual runs, after every example typechecks. It needs a GitHub Environment named `tenderly` that holds the secret `TENDERLY_ACCESS_KEY`, with required reviewers or deployment branches limited to `main`, plus the repo variables `TENDERLY_ACCOUNT_NAME` and `TENDERLY_PROJECT_NAME`. It skips pull requests from forks, which get no secrets.
+- In GitHub Actions the script masks both RPC URLs in the job log and adds the links to the job summary. A passing run deletes its environment; a failing one keeps it, so the links keep working.
 - The exit code is the suite's. If the suite stops before its RESULT line, for example when an import fails, the script prints `[FAIL]` with the reason, the links and `RESULT FAIL`, and exits 1.
 - Tenderly also has a GitHub Action, [`Tenderly/vnet-github-action`](https://github.com/Tenderly/vnet-github-action), which creates environments through an endpoint outside the API reference.

@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "description": "An agent checks each planned intent against rules and a simulation on a Virtual Environment, and sends it only when both pass.",
+  "license": "MIT",
   "engines": {
     "node": ">=22"
   },

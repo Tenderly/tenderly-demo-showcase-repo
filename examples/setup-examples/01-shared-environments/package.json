@@ -1,6 +1,7 @@
 {
   "name": "tenderly-demo-setup-01-shared-environments",
   "description": "Creates or reuses one Virtual Environment per stage (dev, qa, uat) that the whole team shares.",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "engines": {

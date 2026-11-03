@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "description": "Sets up a Tenderly Alert for bad debt on Morpho Blue and the Web3 Action it runs, which checks steakUSDC's invariants, through the REST API only.",
+  "license": "MIT",
   "engines": {
     "node": ">=22"
   },

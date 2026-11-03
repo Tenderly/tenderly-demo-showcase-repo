@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "description": "Drop Aave V3's WETH price on a Virtual Environment, count the positions that fall below health factor 1, and liquidate the worst one.",
+  "license": "MIT",
   "engines": {
     "node": ">=22"
   },

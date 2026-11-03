@@ -6,7 +6,7 @@ import {
   Contract, Interface, dataSlice, getAddress, solidityPackedKeccak256, toBeHex, toQuantity, zeroPadValue,
   type JsonRpcProvider, type Log,
 } from "ethers";
-import { multicall } from "./multicall.js";
+import { multicall, type ContractCall } from "./multicall.js";
 
 const ADDRESSES_PROVIDER = getAddress("0x2f39d218133AFaB8F2B819B1066c7E434Ad94E9e");
 export const POOL = getAddress("0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2");
@@ -111,9 +111,9 @@ export async function borrowersBetween(p: JsonRpcProvider, from: number, to: num
 
 /** Each account's configuration bitmap: bit 2*id is "borrows reserve id", bit 2*id+1 is "uses it as collateral". */
 export async function configurations(p: JsonRpcProvider, users: string[]): Promise<bigint[]> {
-  const calls = users.map((u) => ({ target: POOL, data: pool.encodeFunctionData("getUserConfiguration", [u]) }));
+  const calls = users.map((u): ContractCall => ({ target: POOL, iface: pool, fn: "getUserConfiguration", args: [u], allowFailure: true }));
   const res = await multicall(p, calls, { chunk: 500 });
-  return res.map((r) => (r ? (pool.decodeFunctionResult("getUserConfiguration", r)[0] as bigint) : 0n));
+  return res.map((r) => (r ? (r[0] as bigint) : 0n));
 }
 
 export const usesAsCollateral = (config: bigint, id: number): boolean => ((config >> BigInt(2 * id + 1)) & 1n) === 1n;
@@ -130,12 +130,11 @@ export interface Account {
 
 /** getUserAccountData for each account, through Multicall3. Accounts whose call fails are left out. */
 export async function accounts(p: JsonRpcProvider, users: string[]): Promise<Account[]> {
-  const calls = users.map((u) => ({ target: POOL, data: pool.encodeFunctionData("getUserAccountData", [u]) }));
+  const calls = users.map((u): ContractCall => ({ target: POOL, iface: pool, fn: "getUserAccountData", args: [u], allowFailure: true }));
   const res = await multicall(p, calls, { chunk: 50, parallel: 12 });
   return users.flatMap((user, i) => {
-    const r = res[i];
-    if (!r) return [];
-    const d = pool.decodeFunctionResult("getUserAccountData", r);
+    const d = res[i];
+    if (!d) return [];
     return [{ user, collateral: d[0] as bigint, debt: d[1] as bigint, hf: d[5] as bigint }];
   });
 }

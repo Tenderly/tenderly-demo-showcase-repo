@@ -1,12 +1,12 @@
 ---
 name: tenderly-examples
-description: Use when the user wants to test contracts or a dapp on a fork of a live network with Tenderly Virtual Environments, or to set up Tenderly monitoring through the API. Covers shared dev/qa/uat environments, test suites that seed state with cheat codes, an environment per pull request in CI, CCTP V2 transfers through the bridge module, auto-mine and State Sync for indexers, DeFi scenarios (a Morpho vault whale exit, an Aave price crash with liquidations, a Safe batch rehearsal, a policy gate that simulates before it sends), and an alert with an alert-triggered Web3 Action created through the API. Works from the runnable TypeScript examples in Tenderly/tenderly-demo-showcase.
+description: Use when the user wants to test contracts or a dapp on a fork of a live network with Tenderly Virtual Environments, or to set up Tenderly monitoring through the API. Covers shared dev/qa/uat environments, test suites that seed state with cheat codes, an environment per pull request in CI, CCTP V2 transfers through the bridge module, auto-mine and State Sync for indexers, DeFi scenarios (a Morpho vault whale exit, an Aave price crash with liquidations, a Safe batch rehearsal, a policy gate that simulates before it sends), and an alert with an alert-triggered Web3 Action created through the API. Works from the runnable TypeScript examples in Tenderly/tenderly-demo-showcase-repo.
 ---
 
 # Tenderly examples
 
 A Virtual Environment is a private fork of a live network. Its Public RPC is for apps, and its Admin RPC adds cheat
-codes. The examples in [Tenderly/tenderly-demo-showcase](https://github.com/Tenderly/tenderly-demo-showcase) use
+codes. The examples in [Tenderly/tenderly-demo-showcase-repo](https://github.com/Tenderly/tenderly-demo-showcase-repo) use
 TypeScript, ethers v6 and `tsx`, with no keys and no faucet. Run or copy an example instead of writing the integration
 from scratch. Each folder has its own README, `package.json` and `lib/`.
 
@@ -33,12 +33,12 @@ from scratch. Each folder has its own README, `package.json` and `lib/`.
    `TENDERLY_PROJECT` (the slugs in `dashboard.tenderly.co/{account}/{project}`).
 
 ```bash
-git clone https://github.com/Tenderly/tenderly-demo-showcase
-cd tenderly-demo-showcase && cp .env.example .env    # fill in the three values
+git clone https://github.com/Tenderly/tenderly-demo-showcase-repo
+cd tenderly-demo-showcase-repo && cp .env.example .env    # fill in the three values
 cd examples/setup-examples/02-automation-tests && npm install && npm test
 ```
 
-To copy one example into another project: `npx degit Tenderly/tenderly-demo-showcase/examples/setup-examples/02-automation-tests tenderly-tests`.
+To copy one example into another project: `npx degit Tenderly/tenderly-demo-showcase-repo/examples/setup-examples/02-automation-tests tenderly-tests`.
 
 ## How the examples call Tenderly
 

@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "description": "A node:test suite that seeds balances with cheat codes and checks a USDC settlement on a Virtual Environment.",
+  "license": "MIT",
   "engines": {
     "node": ">=22"
   },

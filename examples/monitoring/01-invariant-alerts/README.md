@@ -1,6 +1,6 @@
 # 01 · Invariant alerts
 
-`npm run setup` creates a Tenderly [Alert](https://docs.tenderly.co/monitoring/alerts/introduction) that fires when a Morpho Blue liquidation on Ethereum books bad debt, and the [Web3 Action](https://docs.tenderly.co/monitoring/web3-actions/introduction) that the alert runs, through the REST API only. The action checks two invariants of steakUSDC (`0xBEEF01735c132Ada46AA9aA4c54623cAA92A64CB`), that the Morpho markets it lends to never book bad debt and that its share price never falls.
+`npm run setup` creates a Tenderly [Alert](https://docs.tenderly.co/monitoring/alerts/introduction) that fires when a Morpho Blue liquidation on Ethereum books at least 1,000 USDC of bad debt, and the [Web3 Action](https://docs.tenderly.co/monitoring/web3-actions/introduction) that the alert runs, through the REST API only. The action checks two invariants of steakUSDC (`0xBEEF01735c132Ada46AA9aA4c54623cAA92A64CB`): its share price never falls (`BROKEN` when it does), and the Morpho markets it lends to book no bad debt (`WARN` when one does but the share price holds).
 
 ## Run
 
@@ -30,7 +30,7 @@ All on `https://api.tenderly.co/api/v1` with the `X-Access-Key` header, in the o
 5. `POST /account/{a}/project/{p}/actions/action/{actionId}/resume`, only when the action is stopped.
 6. `GET /account/{a}/project/{p}/delivery-channels` until it lists `{"id": "<actionId>", "type": "action"}`, the channel the alert delivers to.
 7. `GET /account/{a}/project/{p}/alerts` to find `Morpho bad debt` by name.
-8. `POST /account/{a}/project/{p}/alert`, or `PATCH /account/{a}/project/{p}/alert/{alertId}` when the stored alert differs. The body, built by `alertSpec()` in `setup.ts`, has `"simple_type": "emitted_log_parameter"`, a `network` expression for network `1`, an `emitted_log` expression for Morpho Blue's `Liquidate` with `"match_non_project_contracts": true` and the condition `badDebtAssets > 0`, and the ids of the action and the channel in `delivery_channels`.
+8. `POST /account/{a}/project/{p}/alert`, or `PATCH /account/{a}/project/{p}/alert/{alertId}` when the stored alert differs. The body, built by `alertSpec()` in `setup.ts`, has `"simple_type": "emitted_log_parameter"`, a `network` expression for network `1`, an `emitted_log` expression for Morpho Blue's `Liquidate` with `"match_non_project_contracts": true` and the condition `badDebtAssets > 999999999` (at least 1,000 USDC), and the ids of the action and the channel in `delivery_channels`.
 9. `GET /account/{a}/project/{p}/actions` and `GET /account/{a}/project/{p}/alerts` again: one of each by name, the alert enabled with exactly those two channels, the action `DEPLOYED`.
 
 ## Example output
@@ -48,7 +48,7 @@ Morpho Blue bad debt on Ethereum, checked against steakUSDC by a Web3 Action
 
 [3/4] Alert
   [ok]   created "Morpho bad debt", alert <alert>…
-  [ok]   Liquidate on Morpho Blue 0xBBBB…FFCb with badDebtAssets > 0, network 1
+  [ok]   Liquidate on Morpho Blue 0xBBBB…FFCb with badDebtAssets >= 1000000000, network 1
   [ok]   delivers to vault-invariants and the email channel
 
 [4/4] Check
@@ -63,6 +63,6 @@ RESULT  PASS   monitor set up: 1 alert, 1 action   1s
 
 ## Notes
 
-- The alert is live. It fires on every bad-debt liquidation in any Morpho Blue market, not only steakUSDC's, and each one emails the channel and runs the action.
-- The action reads Ethereum at blocks N-1 and N through `context.gateways`, so it needs no secret or RPC URL. It logs one verdict line, such as `steakUSDC invariants BROKEN (bad debt in a market steakUSDC lends to). Tx 0x46d998759cb0c29740e4eb90158248a5b89c43c97e4c99e5f9da614670260e49 at block 24,361,853: bad debt 0.002121 USDC in cbBTC/USDC (0x64d65c…, in steakUSDC's withdraw queue). Share price 1.116413 → 1.116413 USDC.` The share price is one share in USDC to 6 decimals, so dust bad debt like this breaks the first invariant but doesn't show in the share price.
+- The alert is live, and each time it fires it emails the channel and runs the action. It can't filter by market, so it fires for any Morpho Blue market, not only steakUSDC's. `badDebtAssets` is in the market's loan token: the threshold is 1,000 USDC in USDC markets, which are all steakUSDC lends to, but almost nothing in a market with an 18-decimal loan token. Raise `MIN_BAD_DEBT` in `setup.ts` and run it again to change it.
+- The action reads Ethereum at blocks N-1 and N through `context.gateways`, so it needs no secret or RPC URL. It logs one verdict line, such as `steakUSDC invariants WARN (bad debt in a market steakUSDC lends to, share price held). Tx 0x46d998759cb0c29740e4eb90158248a5b89c43c97e4c99e5f9da614670260e49 at block 24,361,853: bad debt 0.002121 USDC in cbBTC/USDC (0x64d65c…, in steakUSDC's withdraw queue). Share price 1.116413 → 1.116413 USDC.` That liquidation is below the threshold, so this alert would no longer fire for it. The share price is one share in USDC to 6 decimals, so bad debt this small doesn't move it; a liquidation in another market logs `HOLD`.
 - To remove the monitor, call `DELETE /account/{a}/project/{p}/alert/{alertId}`, then `DELETE /account/{a}/project/{p}/actions/action/{actionId}`.

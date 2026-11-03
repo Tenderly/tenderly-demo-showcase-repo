@@ -1,5 +1,6 @@
 // Example 04: create an environment for a pull request, then run example 02's suite against it in a child process.
-// npm run ci -- --pr 4217. Nothing deletes the environment. A suite that stops before its RESULT line fails the run.
+// npm run ci -- --pr 4217. With --cleanup a passing run deletes its environment; a failing run always keeps it, so
+// its links can be debugged. A suite that stops before its RESULT line fails the run.
 // In GitHub Actions it masks both RPC URLs before any other output and appends the links to the job summary.
 import { spawn } from "node:child_process";
 import { appendFileSync, existsSync } from "node:fs";
@@ -9,7 +10,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import chalk from "chalk";
 import * as log from "./lib/log.js";
-import { createEnvironment, credentials, environmentUrl, providerFor, runSlug, transactionsUrl } from "./lib/tenderly.js";
+import {
+  createEnvironment, credentials, deleteEnvironment, environmentUrl, providerFor, runSlug, transactionsUrl,
+} from "./lib/tenderly.js";
 
 const SUITE = resolve(dirname(fileURLToPath(import.meta.url)), "../02-automation-tests");
 const GITHUB = process.env.GITHUB_ACTIONS === "true";
@@ -68,7 +71,7 @@ function reason(line: string): string {
 }
 
 async function main(): Promise<number> {
-  const { pr } = parseArgs({ options: { pr: { type: "string" } } }).values;
+  const { pr, cleanup } = parseArgs({ options: { pr: { type: "string" }, cleanup: { type: "boolean" } } }).values;
   if (pr !== undefined && !/^\d+$/.test(pr)) throw new Error(`--pr takes a pull request number, not "${pr}"`);
   if (!existsSync(resolve(SUITE, "package.json"))) throw new Error("example 02 is missing: 04 runs ../02-automation-tests");
   const c = credentials();
@@ -82,15 +85,17 @@ async function main(): Promise<number> {
   if (GITHUB) process.stdout.write(`::add-mask::${n.adminRpc}\n::add-mask::${n.publicRpc}\n`);
 
   const links = [["environment", environmentUrl(c, e)], ["transactions", transactionsUrl(c, e)]] as const;
-  const summary = (pass: boolean): void => {
+  const summary = (pass: boolean, deleted: boolean): void => {
     const file = process.env.GITHUB_STEP_SUMMARY;
     if (!GITHUB || !file) return;
     const lines = [
       `### ${e.displayName}: ${pass ? "PASS" : "FAIL"}`,
       "",
-      `Example 02's settlement suite on \`${e.slug}\`, chain id ${n.chainId}. The links need a login to the Tenderly project.`,
+      `Example 02's settlement suite on \`${e.slug}\`, chain id ${n.chainId}.`,
       "",
-      ...links.map(([label, url]) => `- [${label}](${url})`),
+      ...(deleted
+        ? ["The environment was deleted after the run passed."]
+        : ["The links need a login to the Tenderly project.", "", ...links.map(([label, url]) => `- [${label}](${url})`)]),
     ];
     appendFileSync(file, `${lines.join("\n")}\n`);
   };
@@ -146,7 +151,20 @@ async function main(): Promise<number> {
     const why = (failure.error?.message ?? failure.shortMessage ?? failure.message ?? String(err)).split("\n")[0];
     code = stop(`${where}: ${why}`, undefined, "example 02's suite did not run");
   }
-  summary(code === 0);
+  let deleted = false;
+  if (cleanup && code === 0) {
+    // After the suite's RESULT line: a failed delete is a warning and doesn't change the verdict.
+    try {
+      await deleteEnvironment(c, e.id);
+      deleted = true;
+      log.note(`deleted environment ${e.slug} (--cleanup)`);
+    } catch (err) {
+      const why = `could not delete environment ${e.slug}: ${(err as Error).message}`;
+      log.warn(why);
+      if (GITHUB) process.stdout.write(`::warning::${why}\n`);
+    }
+  }
+  summary(code === 0, deleted);
   return code;
 }
 
