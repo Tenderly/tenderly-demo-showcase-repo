@@ -1,0 +1,25 @@
+{
+  "name": "tenderly-demo-setup-04-ci-cd",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Creates a Virtual Environment for a pull request and runs example 02's settlement suite against it, locally or in GitHub Actions.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "ci": "tsx ci-run.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "dotenv": "^16.4.5",
+    "ethers": "^6.13.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.4",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.2"
+  }
+}

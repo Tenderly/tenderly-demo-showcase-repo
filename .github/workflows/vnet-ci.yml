@@ -1,20 +1,10 @@
-# Per-PR Virtual Environment CI (example 04).
+# Typechecks every example and checks the shared/lib copies on every pull request, forks included: neither needs a
+# secret. Then runs example 04, which creates an environment, runs example 02's suite against it and deletes it when
+# the suite passes. A failing run keeps its environment, and the job summary links to it (login to the project needed).
 #
-# On every pull request this creates a fresh Tenderly Virtual Environment (a fork of
-# Ethereum mainnet), runs the treasury settlement suite against it, and the action
-# cleans the environment up after the run. Every PR gets a private fork of mainnet to
-# test against, with no shared staging chain to corrupt, no faucet and no keys.
-#
-# Setup (one time, in the GitHub repo settings):
-#   Secrets   -> TENDERLY_ACCESS_KEY        (Dashboard > Account Settings > Authorization)
-#   Variables -> TENDERLY_ACCOUNT_NAME      (account slug)
-#   Variables -> TENDERLY_PROJECT_NAME      (project slug)
-#
-# The Tenderly action exports per-network RPC URLs into the job environment:
-#   TENDERLY_ADMIN_RPC_URL_1   (cheat codes, the test suite seeds state with this)
-#   TENDERLY_PUBLIC_RPC_URL_1  (standard JSON-RPC, what an app would use)
-# The settlement suite (examples/02-automation-tests/settlement.test.ts) reads those,
-# so the same test runs locally and in CI.
+# Setup: a GitHub Environment named "tenderly" holding the secret TENDERLY_ACCESS_KEY, with required reviewers or
+# deployment branches limited to main, so a branch can't change this file and read the key. Repo variables
+# TENDERLY_ACCOUNT_NAME and TENDERLY_PROJECT_NAME. Actions are pinned to commit SHAs; the comment names the tag.
 name: Virtual Environment CI
 
 on:
@@ -23,36 +13,84 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  settlement:
-    # Runs once the repo has the Tenderly variables set (see Setup above). Pull requests
-    # from forks don't get the repository's secrets, so they're skipped too.
+  shared-lib:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - run: node scripts/sync-shared.mjs --check
+
+  typecheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        example:
+          - setup-examples/01-shared-environments
+          - setup-examples/02-automation-tests
+          - setup-examples/03-multichain-bridge
+          - setup-examples/04-ci-cd
+          - setup-examples/05-auto-mine-indexing
+          - defi-examples/001-whale-exit
+          - defi-examples/002-aave-crash-liquidation
+          - defi-examples/003-safe-batch-rehearsal
+          - defi-examples/004-policy-gate
+          - monitoring/01-invariant-alerts
+    defaults:
+      run:
+        working-directory: examples/${{ matrix.example }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: examples/${{ matrix.example }}/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+
+  vnet-suite:
+    needs: [shared-lib, typecheck]
+    # Skips until the repo variables exist, and skips pull requests from forks, which get no secrets.
     if: vars.TENDERLY_ACCOUNT_NAME != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: tenderly
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version: "20"
+          persist-credentials: false
 
-      # A fresh Virtual Environment for this run. CI mode cleans it up after the job.
-      - name: Set up Virtual Environment
-        uses: Tenderly/vnet-github-action@v1.0.17
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          mode: CI
-          access_key: ${{ secrets.TENDERLY_ACCESS_KEY }}
-          account_name: ${{ vars.TENDERLY_ACCOUNT_NAME }}
-          project_name: ${{ vars.TENDERLY_PROJECT_NAME }}
-          testnet_name: "Acme CI #${{ github.run_number }}"
-          network_id: 1
-          chain_id_prefix: 7357
-          public_explorer: true
+          node-version-file: .nvmrc
 
-      - name: Run the settlement suite against the Environment
-        working-directory: examples/02-automation-tests
-        run: |
-          npm install
-          npm test
-        # TENDERLY_ADMIN_RPC_URL_1 / TENDERLY_PUBLIC_RPC_URL_1 are exported by the
-        # action above into the job environment, so the suite picks them up.
+      - run: npm ci --no-audit --no-fund
+        working-directory: examples/setup-examples/02-automation-tests
+
+      - run: npm ci --no-audit --no-fund
+        working-directory: examples/setup-examples/04-ci-cd
+
+      - name: Create an environment, run example 02's suite, delete it on PASS
+        run: npm run ci -- --pr ${{ github.event.pull_request.number || github.run_number }} --cleanup
+        working-directory: examples/setup-examples/04-ci-cd
+        env:
+          TENDERLY_ACCESS_KEY: ${{ secrets.TENDERLY_ACCESS_KEY }}
+          TENDERLY_ACCOUNT: ${{ vars.TENDERLY_ACCOUNT_NAME }}
+          TENDERLY_PROJECT: ${{ vars.TENDERLY_PROJECT_NAME }}

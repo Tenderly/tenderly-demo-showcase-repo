@@ -1,0 +1,25 @@
+{
+  "name": "tenderly-demo-defi-004-policy-gate",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "An agent checks each planned intent against rules and a simulation on a Virtual Environment, and sends it only when both pass.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "demo": "tsx policy-gate.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "dotenv": "^16.4.5",
+    "ethers": "^6.13.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.4",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.2"
+  }
+}

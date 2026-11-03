@@ -1,0 +1,24 @@
+{
+  "name": "tenderly-demo-monitoring-01-invariant-alerts",
+  "private": true,
+  "type": "module",
+  "description": "Sets up a Tenderly Alert for bad debt on Morpho Blue and the Web3 Action it runs, which checks steakUSDC's invariants, through the REST API only.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "setup": "tsx setup.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "dotenv": "^16.4.5",
+    "ethers": "^6.13.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.4",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.2"
+  }
+}

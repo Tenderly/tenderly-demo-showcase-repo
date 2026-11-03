@@ -1,0 +1,26 @@
+{
+  "name": "tenderly-demo-defi-001-whale-exit",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A Morpho vault's largest depositor withdraws everything on a Virtual Environment forked from Ethereum.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "demo": "tsx whale-exit.ts",
+    "demo:fail": "tsx whale-exit.ts --min-exit-pct 60",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "dotenv": "^16.4.5",
+    "ethers": "^6.13.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.4",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.2"
+  }
+}
